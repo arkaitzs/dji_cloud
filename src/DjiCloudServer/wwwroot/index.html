@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USBA Sotomayor - Panel de Autenticación H5</title>
+    
+    <!-- Favicon y thumbnail -->
+    <link rel="icon" type="image/png" href="/img/escudo.png">
+    <link rel="apple-touch-icon" href="/img/escudo.png">
+    
+    <!-- Tipografías de Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Rajdhani:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-start: #0a0b10;
+            --bg-end: #121520;
+            --card-bg: rgba(22, 28, 45, 0.45);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --primary-glow: rgba(99, 102, 241, 0.15);
+            --accent-cyan: #06b6d4;
+            --accent-indigo: #6366f1;
+            --accent-purple: #a855f7;
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-danger: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        /* Efecto de Luces de Fondo (Glow) */
+        body::before {
+            content: "";
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, var(--accent-indigo) 0%, transparent 70%);
+            top: 15%;
+            left: 10%;
+            opacity: 0.15;
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(80px);
+        }
+
+        body::after {
+            content: "";
+            position: absolute;
+            width: 450px;
+            height: 450px;
+            background: radial-gradient(circle, var(--accent-cyan) 0%, transparent 70%);
+            bottom: 10%;
+            right: 5%;
+            opacity: 0.12;
+            z-index: 0;
+            pointer-events: none;
+            filter: blur(90px);
+        }
+
+        /* Líneas de cuadrícula sutiles */
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.007) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.007) 1px, transparent 1px);
+            background-size: 40px 40px;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 550px;
+            padding: 24px;
+            z-index: 1;
+        }
+
+        /* Card Principal con Glassmorphism */
+        .glass-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 40px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Borde superior animado de neón */
+        .glass-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-indigo), var(--accent-purple));
+        }
+
+        /* Cabecera del Panel */
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo-area {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.2));
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            margin-bottom: 16px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+
+        .logo-area::after {
+            content: "";
+            position: absolute;
+            inset: -4px;
+            border-radius: 20px;
+            background: linear-gradient(135deg, var(--accent-indigo), var(--accent-cyan));
+            opacity: 0.3;
+            z-index: -1;
+            filter: blur(6px);
+        }
+
+        .logo-area svg {
+            width: 32px;
+            height: 32px;
+            fill: none;
+            stroke: #fff;
+            stroke-width: 1.5;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        h1 {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            background: linear-gradient(90deg, #ffffff, #d8b4fe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        /* Badges de Estado */
+        .status-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid transparent;
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+        .badge-success .badge-dot {
+            background: var(--accent-success);
+            box-shadow: 0 0 8px var(--accent-success);
+            animation: pulse-glow 2s infinite;
+        }
+
+        .badge-warning {
+            background: rgba(245, 158, 11, 0.1);
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.2);
+        }
+        .badge-warning .badge-dot {
+            background: var(--accent-warning);
+            box-shadow: 0 0 8px var(--accent-warning);
+            animation: pulse-glow 2s infinite;
+        }
+
+        .badge-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+        .badge-danger .badge-dot {
+            background: var(--accent-danger);
+            box-shadow: 0 0 8px var(--accent-danger);
+            animation: pulse-glow 1.5s infinite;
+        }
+
+        @keyframes pulse-glow {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+
+        /* Secciones de Datos */
+        .section-title {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent-cyan);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .config-preview {
+            background: rgba(10, 11, 16, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 24px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: #d1d5db;
+            line-height: 1.6;
+        }
+
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            border-bottom: 1px dashed rgba(255, 255, 255, 0.04);
+            padding-bottom: 4px;
+        }
+        .config-item:last-child {
+            margin-bottom: 0;
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+
+        .config-key {
+            color: #818cf8;
+        }
+        .config-val {
+            color: #34d399;
+            font-weight: bold;
+        }
+
+        /* Formulario e Inputs */
+        .form-group {
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .form-control {
+            width: 100%;
+            background: rgba(10, 11, 16, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent-indigo);
+            background: rgba(10, 11, 16, 0.8);
+            box-shadow: 0 0 12px rgba(99, 102, 241, 0.25);
+        }
+
+        /* Botón de Acción Principal */
+        .btn-action {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            background: linear-gradient(90deg, var(--accent-indigo), var(--accent-cyan));
+            color: white;
+            border: none;
+            border-radius: 14px;
+            padding: 16px 24px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+            margin-top: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-action::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, var(--accent-purple), var(--accent-indigo));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 1;
+        }
+
+        .btn-action:hover::after {
+            opacity: 1;
+        }
+
+        .btn-action:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.5);
+        }
+
+        .btn-action:active {
+            transform: translateY(1px);
+        }
+
+        .btn-action span {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Consola de Simulación */
+        .simulation-console {
+            margin-top: 24px;
+            background: #050608;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 16px;
+            display: none;
+            animation: slide-up 0.4s ease;
+        }
+
+        @keyframes slide-up {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .console-header {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-purple);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .console-body {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            max-height: 150px;
+            overflow-y: auto;
+            color: #a7f3d0;
+        }
+
+        .console-line {
+            margin-bottom: 4px;
+        }
+        .console-line.info { color: #93c5fd; }
+        .console-line.success { color: #34d399; }
+        .console-line.warn { color: #fcd34d; }
+    </style>
+</head>
+<body>
+    <div class="grid-overlay"></div>
+    
+    <div class="container">
+        <div class="glass-card">
+            
+            <!-- Cabecera -->
+            <div class="header">
+                <div class="logo-area">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                </div>
+                <h1>USBA Sotomayor</h1>
+                <p class="subtitle">Enlace de Hardware DJI Pilot 2 - Servidor Local</p>
+            </div>
+
+            <!-- Badges de Estado -->
+            <div class="status-container">
+                <div id="status-bridge" class="badge badge-danger">
+                    <span class="badge-dot"></span>
+                    <span class="status-text">Buscando djiBridge...</span>
+                </div>
+                <div id="status-server" class="badge badge-warning">
+                    <span class="badge-dot"></span>
+                    <span class="status-text">Conectando a API...</span>
+                </div>
+                <a href="dashboard.html" class="badge" style="background: rgba(99, 102, 241, 0.1); color: #818cf8; border-color: rgba(99, 102, 241, 0.25); text-decoration: none; display: flex; align-items: center; gap: 4px; transition: all 0.3s ease;" onmouseover="this.style.background='rgba(99, 102, 241, 0.25)'" onmouseout="this.style.background='rgba(99, 102, 241, 0.1)'">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+                    <span>Consola Servidor</span>
+                </a>
+            </div>
+
+            <!-- Configuración del Servidor -->
+            <div class="section-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                Credenciales DJI del Servidor
+            </div>
+            
+            <div class="form-group" style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
+                <div>
+                    <label for="dji-appid">App ID</label>
+                    <input type="text" id="dji-appid" class="form-control" placeholder="Cargando...">
+                </div>
+                <div>
+                    <label for="dji-appkey">App Key</label>
+                    <input type="text" id="dji-appkey" class="form-control" placeholder="Cargando...">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="dji-license">Licencia DJI</label>
+                <textarea id="dji-license" class="form-control" rows="3" style="resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.4;" placeholder="Cargando..."></textarea>
+            </div>
+
+            <!-- Parámetros MQTT para el Dron -->
+            <div class="section-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>
+                Parámetros de Red MQTT
+            </div>
+
+            <div class="form-group">
+                <label for="mqtt-host">Host del Broker (IP Local)</label>
+                <input type="text" id="mqtt-host" class="form-control" placeholder="192.168.x.x">
+            </div>
+
+            <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div>
+                    <label for="mqtt-user">Usuario MQTT</label>
+                    <input type="text" id="mqtt-user" class="form-control" value="local_user">
+                </div>
+                <div>
+                    <label for="mqtt-pass">Contraseña MQTT</label>
+                    <input type="password" id="mqtt-pass" class="form-control" value="local_password">
+                </div>
+            </div>
+
+            <div class="form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                <input type="checkbox" id="auto-redirect" checked style="width: 16px; height: 16px; accent-color: var(--accent-indigo); cursor: pointer;">
+                <label for="auto-redirect" style="margin-bottom: 0; font-size: 13px; color: var(--text-muted); cursor: pointer; user-select: none; text-transform: none; letter-spacing: 0;">
+                    Cerrar y redirigir automáticamente al conectar
+                </label>
+            </div>
+
+            <!-- Botón de Enlace -->
+            <button id="btn-connect" class="btn-action" onclick="conectarDron()">
+                <span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                    Conectar al Servidor Local
+                </span>
+            </button>
+
+            <!-- Consola de Simulación Web -->
+            <div id="sim-console" class="simulation-console">
+                <div class="console-header">
+                    <span>Simulador JSBridge (Entorno Web)</span>
+                    <span style="color: #6b7280; cursor: pointer;" onclick="document.getElementById('sim-console').style.display='none'">[Cerrar]</span>
+                </div>
+                <div id="console-logs" class="console-body">
+                    <!-- Logs insertados dinámicamente -->
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // Configuración obtenida dinámicamente del backend
+        let serverConfig = null;
+        let autoConnectTimer = null;
+        let countdownSeconds = 3;
+        let isLicenseVerified = false;
+
+        // Comprobación de djiBridge
+        window.addEventListener('DOMContentLoaded', () => {
+            detectBridge();
+            fetchServerConfig();
+        });
+
+        function detectBridge() {
+            const bridgeBadge = document.getElementById('status-bridge');
+            if (window.djiBridge) {
+                bridgeBadge.className = 'badge badge-success';
+                bridgeBadge.querySelector('.status-text').textContent = 'djiBridge Activo';
+            } else {
+                bridgeBadge.className = 'badge badge-warning';
+                bridgeBadge.querySelector('.status-text').textContent = 'Simulación Web';
+            }
+        }
+
+        async function fetchServerConfig() {
+            const serverBadge = document.getElementById('status-server');
+            try {
+                const response = await fetch('/api/dji/config');
+                if (!response.ok) throw new Error('Error al leer la API');
+                
+                serverConfig = await response.json();
+                
+                // Soporte robusto para PascalCase y camelCase
+                const appId = serverConfig.appId || serverConfig.AppId || '';
+                const appKey = serverConfig.appKey || serverConfig.AppKey || '';
+                const license = serverConfig.license || serverConfig.License || '';
+                const mqttConfig = serverConfig.mqtt || serverConfig.Mqtt || {};
+                const mqttHost = mqttConfig.host || mqttConfig.Host || '';
+                const mqttUser = mqttConfig.username || mqttConfig.Username || 'local_user';
+                const mqttPass = mqttConfig.password || mqttConfig.Password || 'local_password';
+
+                // Actualizar interfaz con los valores
+                document.getElementById('dji-appid').value = appId;
+                document.getElementById('dji-appkey').value = appKey;
+                document.getElementById('dji-license').value = license;
+                
+                document.getElementById('mqtt-host').value = mqttHost;
+                document.getElementById('mqtt-user').value = mqttUser;
+                document.getElementById('mqtt-pass').value = mqttPass;
+                
+                serverBadge.className = 'badge badge-success';
+                serverBadge.querySelector('.status-text').textContent = 'API Conectada';
+
+                // Verificar la licencia inmediatamente en el ciclo de carga del WebView
+                if (window.djiBridge) {
+                    printLog("Llamando a platformVerifyLicense...", 'info');
+                    const verifyRes = window.djiBridge.platformVerifyLicense(appId, appKey, license);
+                    logBridgeResult("platformVerifyLicense", verifyRes);
+                    
+                    // Comprobación inicial síncrona del estado real de verificación
+                    try {
+                        const isVerifiedRes = window.djiBridge.platformIsVerified();
+                        const res = typeof isVerifiedRes === 'string' ? JSON.parse(isVerifiedRes) : isVerifiedRes;
+                        isLicenseVerified = (res && res.code === 0 && (res.data === true || res.data === "true"));
+                    } catch (e) {
+                        isLicenseVerified = false;
+                    }
+                }
+
+                // Iniciar cuenta regresiva para conexión automática si djiBridge está activo
+                if (window.djiBridge) {
+                    startAutoConnectCountdown();
+                }
+            } catch (err) {
+                console.error(err);
+                serverBadge.className = 'badge badge-danger';
+                serverBadge.querySelector('.status-text').textContent = 'Error Servidor';
+                
+                // Rellenar valores por defecto y hacerlos editables
+                document.getElementById('dji-appid').value = '186764';
+                document.getElementById('dji-appkey').value = 'c0fdb38ce3d2f768cc5573dd502d686';
+                document.getElementById('dji-license').value = 'x9V9AgSP1MaN3tZ3rKmphRJXT4vdFx7UdHK+ZFfqJUJAevNm7pSMsAheqYwl9vPYAys/gxKkrCWcinImVXpVGvfajNK2y2U5ubrybYbOf7bXowtvlybutu9ZpYN9IbcrPCujDFqfPVu5Q5ixyyGD46eFBYcxT/wjf3XoKvNsJiA=';
+                document.getElementById('mqtt-host').value = window.location.hostname || '192.168.1.50';
+            }
+        }
+
+        function startAutoConnectCountdown() {
+            const btn = document.getElementById('btn-connect');
+            btn.onclick = cancelAutoConnect; // Al pulsar cancela la cuenta atrás
+            
+            autoConnectTimer = setInterval(() => {
+                if (countdownSeconds <= 0) {
+                    clearInterval(autoConnectTimer);
+                    autoConnectTimer = null;
+                    // Restaurar botón
+                    btn.onclick = conectarDron;
+                    btn.querySelector('span').innerHTML = `
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                        Conectando...
+                    `;
+                    conectarDron();
+                } else {
+                    btn.querySelector('span').innerHTML = `
+                        Conectando en ${countdownSeconds}s... (Pulsa para editar)
+                    `;
+                    countdownSeconds--;
+                }
+            }, 1000);
+        }
+
+        function cancelAutoConnect() {
+            if (autoConnectTimer) {
+                clearInterval(autoConnectTimer);
+                autoConnectTimer = null;
+                printLog("Conexión automática cancelada por el usuario. Puedes editar la IP y conectar manualmente.", "warn");
+                
+                const btn = document.getElementById('btn-connect');
+                btn.querySelector('span').innerHTML = `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                    Conectar al Servidor Local
+                `;
+                btn.onclick = conectarDron;
+            }
+        }
+
+        function printLog(text, type = 'info') {
+            const container = document.getElementById('sim-console');
+            const logs = document.getElementById('console-logs');
+            container.style.display = 'block';
+            
+            const line = document.createElement('div');
+            line.className = `console-line ${type}`;
+            const time = new Date().toLocaleTimeString();
+            line.textContent = `[${time}] ${text}`;
+            logs.appendChild(line);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        // Helper para procesar e imprimir el resultado de llamadas JSBridge
+        function logBridgeResult(name, resString) {
+            if (!resString) {
+                printLog(`✓ ${name} ejecutado sin retorno`, 'success');
+                return true;
+            }
+            try {
+                const res = typeof resString === 'string' ? JSON.parse(resString) : resString;
+                if (res.code === 0) {
+                    printLog(`✓ ${name} exitoso: ${res.message || 'OK'}`, 'success');
+                    return true;
+                } else {
+                    printLog(`✗ ${name} falló (código ${res.code}): ${res.message}`, 'danger');
+                    return false;
+                }
+            } catch (err) {
+                printLog(`? ${name} retorno bruto: ${resString}`, 'info');
+                return true; // Asumimos ejecución
+            }
+        }
+
+        let isConnectionRegistered = false;
+
+        // Callback de éxito al conectarse
+        function onConnectionSuccess(token) {
+            if (isConnectionRegistered) return;
+            
+            // Si la licencia aún no está verificada, intentar comprobar o verificar ahora
+            if (!isLicenseVerified && window.djiBridge) {
+                try {
+                    const isVerifiedRes = window.djiBridge.platformIsVerified();
+                    const res = typeof isVerifiedRes === 'string' ? JSON.parse(isVerifiedRes) : isVerifiedRes;
+                    isLicenseVerified = (res && res.code === 0 && (res.data === true || res.data === "true"));
+                    
+                    if (!isLicenseVerified) {
+                        const appId = document.getElementById('dji-appid').value;
+                        const appKey = document.getElementById('dji-appkey').value;
+                        const license = document.getElementById('dji-license').value;
+                        printLog("Llamando a platformVerifyLicense (reintento)...", 'info');
+                        window.djiBridge.platformVerifyLicense(appId, appKey, license);
+                        
+                        // Espera muy breve para ver si se valida
+                        const checkAgain = window.djiBridge.platformIsVerified();
+                        const res2 = typeof checkAgain === 'string' ? JSON.parse(checkAgain) : checkAgain;
+                        isLicenseVerified = (res2 && res2.code === 0 && (res2.data === true || res2.data === "true"));
+                    }
+                } catch (e) {
+                    isLicenseVerified = false;
+                }
+            }
+
+            if (!isLicenseVerified && window.djiBridge) {
+                printLog("✗ No se pueden establecer propiedades de sesión porque la verificación de licencia falló. Por favor, asegúrate de que el mando esté conectado a Internet.", 'danger');
+                return;
+            }
+
+            isConnectionRegistered = true;
+            printLog("¡Conexión MQTT verificada con éxito!", 'success');
+            
+            try {
+                const workspaceId = "e3dea0f5-37f2-4d79-ae58-490af3228069";
+                
+                // 1. Establecer Workspace ID e Información de Plataforma (AHORA que estamos conectados)
+                printLog("Estableciendo Workspace ID...", 'info');
+                const wsRes = window.djiBridge.platformSetWorkspaceId(workspaceId);
+                const wsOk = logBridgeResult("platformSetWorkspaceId", wsRes);
+                
+                printLog("Estableciendo Información de Plataforma...", 'info');
+                const infoRes = window.djiBridge.platformSetInformation("DjiCloudServer", "USBA Sotomayor", "Servidor Local DJI Cloud");
+                const infoOk = logBridgeResult("platformSetInformation", infoRes);
+                
+                // 2. Establecer el token de la API
+                printLog(`Estableciendo Token de la API: ${token}...`, 'info');
+                const tokenRes = window.djiBridge.apiSetToken(token);
+                const tokenOk = logBridgeResult("apiSetToken", tokenRes);
+                
+                if (wsOk && infoOk && tokenOk) {
+                    printLog("¡Sesión registrada correctamente en el hardware!", 'success');
+                } else {
+                    printLog("⚠️ Algunos parámetros de sesión no pudieron registrarse. Revisa los errores anteriores.", 'warn');
+                }
+            } catch (err) {
+                printLog(`Error al registrar propiedades de la sesión: ${err.message}`, 'danger');
+            }
+
+            // 3. Redirigir/Cerrar si la casilla está marcada
+            const shouldRedirect = document.getElementById('auto-redirect').checked;
+            if (shouldRedirect) {
+                printLog("Redirigiendo en 1.5 segundos...", 'success');
+                setTimeout(() => {
+                    if (window.djiBridge && window.djiBridge.platformStopSelf) {
+                        window.djiBridge.platformStopSelf();
+                    }
+                }, 1500);
+            } else {
+                printLog("Redirección automática desactivada por el usuario. Puedes salir de forma manual.", 'warn');
+            }
+        }
+
+        // Callback global para recibir estado de conexión MQTT desde djiBridge
+        window.onThingConnectCallback = function(res) {
+            try {
+                const response = typeof res === 'string' ? JSON.parse(res) : res;
+                printLog(`[MQTT Callback] Estado de conexión: ${JSON.stringify(response)}`, 'info');
+                
+                // Si la conexión es exitosa (la respuesta o los datos indican conexión)
+                const state = (response && response.data && (response.data.state === true || response.data.status === true)) 
+                           || (response && (response.status === true || response.state === true))
+                           || (response && response.code === 0 && response.data === true);
+                
+                if (state) {
+                    const mqttConfig = serverConfig ? (serverConfig.mqtt || serverConfig.Mqtt || {}) : {};
+                    const token = mqttConfig.token || mqttConfig.Token || "session_mock_token";
+                    onConnectionSuccess(token);
+                }
+            } catch (err) {
+                printLog(`[MQTT Callback] Estado de conexión recibido: ${res}`, 'info');
+            }
+        };
+
+        // Callback global para recibir estado de conexión WebSocket desde djiBridge
+        window.onWsConnectCallback = function(res) {
+            try {
+                const response = typeof res === 'string' ? JSON.parse(res) : res;
+                printLog(`[WebSocket Callback] Estado: ${JSON.stringify(response)}`, 'info');
+            } catch (err) {
+                printLog(`[WebSocket Callback] Estado recibido: ${res}`, 'info');
+            }
+        };
+
+        async function conectarDron() {
+            // Cancelar cualquier temporizador de autoconexión por si acaso
+            if (autoConnectTimer) {
+                clearInterval(autoConnectTimer);
+                autoConnectTimer = null;
+            }
+
+            isConnectionRegistered = false;
+            const host = document.getElementById('mqtt-host').value;
+            const user = document.getElementById('mqtt-user').value;
+            const pass = document.getElementById('mqtt-pass').value;
+            
+            const appId = document.getElementById('dji-appid').value;
+            const appKey = document.getElementById('dji-appkey').value;
+            const license = document.getElementById('dji-license').value;
+            
+            const mqttConfig = serverConfig ? (serverConfig.mqtt || serverConfig.Mqtt || {}) : {};
+            const token = mqttConfig.token || mqttConfig.Token || "session_mock_token";
+
+            if (window.djiBridge) {
+                try {
+                    // 1. Verificación obligatoria de licencia Cloud de DJI
+                    printLog("Llamando a platformVerifyLicense...", 'info');
+                    const verifyRes = window.djiBridge.platformVerifyLicense(appId, appKey, license);
+                    logBridgeResult("platformVerifyLicense", verifyRes);
+
+                    // Esperar a que platformIsVerified devuelva éxito (código 0)
+                    let maxRetries = 10;
+                    isLicenseVerified = false;
+                    for (let i = 0; i < maxRetries; i++) {
+                        printLog(`Comprobando verificación de licencia (${i + 1}/${maxRetries})...`, 'info');
+                        try {
+                            const isVerifiedRes = window.djiBridge.platformIsVerified();
+                            const res = typeof isVerifiedRes === 'string' ? JSON.parse(isVerifiedRes) : isVerifiedRes;
+                            if (res && res.code === 0 && (res.data === true || res.data === "true")) {
+                                isLicenseVerified = true;
+                                printLog("✓ Licencia verificada correctamente por Pilot 2.", 'success');
+                                break;
+                            } else {
+                                const details = res ? JSON.stringify(res) : 'No autenticado';
+                                printLog(`Estado de verificación: ${details}`, 'warn');
+                            }
+                        } catch (e) {
+                            printLog(`Error al comprobar: ${e.message}`, 'warn');
+                        }
+                        // Esperar 600ms antes de volver a preguntar
+                        await new Promise(resolve => setTimeout(resolve, 600));
+                    }
+
+                    if (!isLicenseVerified) {
+                        printLog("❌ Error: No se pudo verificar la licencia en el mando.", 'danger');
+                        printLog("Por favor, asegúrate de que:", 'warn');
+                        printLog("1. El mando tenga acceso a Internet (para validar la licencia con DJI por primera vez).", 'warn');
+                        printLog("2. Las credenciales de desarrollador (AppId, AppKey, Licencia) sean correctas.", 'warn');
+                        alert("Error: No se pudo verificar la licencia. Asegúrate de tener internet en el mando.");
+                        return;
+                    }
+
+                    // 2. Cargar componente 'thing' (MQTT)
+                    const thingParam = {
+                        host: `tcp://${host}:1883`,
+                        username: user,
+                        password: pass,
+                        connectCallback: "onThingConnectCallback"
+                    };
+                    printLog(`Cargando componente 'thing' con host: tcp://${host}:1883...`, 'info');
+                    const thingRes = window.djiBridge.platformLoadComponent("thing", JSON.stringify(thingParam));
+                    logBridgeResult("Componente 'thing'", thingRes);
+
+                    // 3. Cargar componente 'api' (HTTP REST)
+                    const apiHost = window.location.protocol + "//" + window.location.host;
+                    const apiParam = {
+                        host: apiHost,
+                        token: token
+                    };
+                    printLog(`Cargando componente 'api' con host: ${apiHost}...`, 'info');
+                    const apiRes = window.djiBridge.platformLoadComponent("api", JSON.stringify(apiParam));
+                    logBridgeResult("Componente 'api'", apiRes);
+
+                    // 4. Cargar componente 'ws' (WebSocket crudo)
+                    const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+                    const wsHost = wsScheme + window.location.host + "/ws";
+                    const wsParam = {
+                        host: wsHost,
+                        token: token,
+                        connectCallback: "onWsConnectCallback"
+                    };
+                    printLog(`Cargando componente 'ws' con host: ${wsHost}...`, 'info');
+                    const wsRes = window.djiBridge.platformLoadComponent("ws", JSON.stringify(wsParam));
+                    logBridgeResult("Componente 'ws'", wsRes);
+
+                    // 5. Cargar componente 'media'
+                    const mediaParam = {
+                        autoUploadPhoto: true,
+                        autoUploadPhotoType: 0,
+                        autoUploadVideo: true
+                    };
+                    printLog("Cargando componente 'media'...", 'info');
+                    const mediaRes = window.djiBridge.platformLoadComponent("media", JSON.stringify(mediaParam));
+                    logBridgeResult("Componente 'media'", mediaRes);
+
+                    // 6. Cargar componente 'mission'
+                    printLog("Cargando componente 'mission'...", 'info');
+                    const missionRes = window.djiBridge.platformLoadComponent("mission", "{}");
+                    logBridgeResult("Componente 'mission'", missionRes);
+
+                    // 7. INICIAR CONEXIÓN MQTT
+                    printLog("Iniciando conexión MQTT del dron (thingConnect)...", 'info');
+                    const connectRes = window.djiBridge.thingConnect(user, pass, "onThingConnectCallback");
+                    logBridgeResult("thingConnect", connectRes);
+
+                    // 8. Sondeo del estado de conexión para salir automáticamente
+                    let checkInterval = setInterval(() => {
+                        try {
+                            if (window.djiBridge && window.djiBridge.thingGetConnectState && window.djiBridge.thingGetConnectState()) {
+                                clearInterval(checkInterval);
+                                onConnectionSuccess(token);
+                            }
+                        } catch (err) {
+                            // Ignorar errores de llamada en el intervalo
+                        }
+                    }, 500);
+                    
+                    // Cancelar sondeo después de 20 segundos y avisar si falló
+                    setTimeout(() => {
+                        clearInterval(checkInterval);
+                        try {
+                            if (window.djiBridge && window.djiBridge.thingGetConnectState && !window.djiBridge.thingGetConnectState()) {
+                                printLog("Tiempo de espera agotado. No se pudo establecer la conexión MQTT.", 'danger');
+                                printLog("Por favor, asegúrate de que el puerto 1883 esté abierto en el Firewall de tu PC.", 'warn');
+                            }
+                        } catch (e) {}
+                    }, 20000);
+
+                    // Mensaje visual de conexión en curso
+                    printLog("Conectando al Broker... Por favor espera.", 'warn');
+                    
+                } catch (e) {
+                    printLog(`Error al invocar JSBridge: ${e.message}`, 'danger');
+                    alert(`Error de JSBridge: ${e.message}`);
+                }
+            } else {
+                // Modo simulación en navegador web ordinario
+                printLog("JSBridge de DJI no detectado. Iniciando simulación...", 'warn');
+                
+                printLog(`[Simulación] platformVerifyLicense("${appId}", "••••••••", "••••••••")`, 'info');
+                printLog(`[Simulación] platformSetWorkspaceId("e3dea0f5-37f2-4d79-ae58-490af3228069")`, 'info');
+                printLog(`[Simulación] platformLoadComponent("thing", ...)`, 'info');
+                printLog(`[Simulación] platformLoadComponent("api", ...)`, 'info');
+                printLog(`[Simulación] platformLoadComponent("ws", ...)`, 'info');
+                printLog(`[Simulación] platformLoadComponent("media", ...)`, 'info');
+                printLog(`[Simulación] platformLoadComponent("mission", "{}")`, 'info');
+                printLog(`[Simulación] thingConnect("${user}", "••••••••", ...)`, 'info');
+                printLog("[Simulación] Conexión simulada con éxito.", 'success');
+                
+                alert("Simulación completada con éxito.");
+            }
+        }
+    </script>
+</body>
+</html>

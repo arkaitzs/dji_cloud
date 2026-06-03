@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video – DJI Cloud</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --bg:          #090b10;
+    --panel:       rgba(14,17,26,0.96);
+    --border:      rgba(255,255,255,0.07);
+    --text:        #e2e8f0;
+    --muted:       #64748b;
+    --cyan:        #06b6d4;
+    --indigo:      #6366f1;
+    --danger:      #ef4444;
+    --success:     #22c55e;
+  }
+  html, body { height:100%; background:var(--bg); color:var(--text); font-family:'Outfit',sans-serif; overflow:hidden; user-select:none; }
+
+  #toolbar {
+    display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background:var(--panel); border-bottom:1px solid var(--border);
+    -webkit-app-region: drag;
+  }
+  #toolbar * { -webkit-app-region: no-drag; }
+
+  .icon-cam { color:var(--cyan); }
+  #title-label { font-family:'Rajdhani',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:var(--text); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #badge { font-size:8px; color:var(--muted); font-family:'JetBrains Mono',monospace; border:1px solid rgba(99,102,241,0.35); border-radius:3px; padding:1px 5px; }
+
+  #url-bar {
+    display:flex; align-items:center; gap:6px;
+    padding:5px 10px; background:rgba(10,11,16,0.7); border-bottom:1px solid var(--border);
+  }
+  #url-input {
+    flex:1; background:rgba(255,255,255,0.04); border:1px solid var(--border);
+    color:var(--text); border-radius:6px; padding:4px 8px; font-size:11px;
+    font-family:'JetBrains Mono',monospace; outline:none;
+  }
+  #url-input:focus { border-color:var(--cyan); }
+  .btn {
+    background:rgba(6,182,212,0.15); border:1px solid rgba(6,182,212,0.4);
+    color:var(--cyan); border-radius:6px; padding:4px 10px; font-size:10px;
+    font-family:'Rajdhani',sans-serif; font-weight:700; text-transform:uppercase;
+    cursor:pointer; letter-spacing:0.4px; transition:background 0.15s;
+  }
+  .btn:hover { background:rgba(6,182,212,0.3); }
+  .btn-stop { background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.35); color:#f87171; }
+  .btn-stop:hover { background:rgba(239,68,68,0.28); }
+
+  #video-container { position:relative; width:100%; background:#000; }
+  video { width:100%; height:100%; display:block; background:#000; }
+
+  #overlay {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:8px;
+    background:rgba(0,0,0,0.6); pointer-events:none;
+  }
+  #overlay svg { opacity:0.3; }
+  #overlay p { font-size:12px; color:var(--muted); font-family:'JetBrains Mono',monospace; }
+
+  #status-bar {
+    display:flex; align-items:center; gap:8px; padding:3px 10px;
+    background:var(--panel); border-top:1px solid var(--border);
+    font-size:9px; font-family:'JetBrains Mono',monospace; color:var(--muted);
+  }
+  .dot { width:6px; height:6px; border-radius:50%; background:var(--muted); display:inline-block; }
+  .dot.live  { background:var(--success); box-shadow:0 0 6px var(--success); animation:pulse 1.5s infinite; }
+  .dot.error { background:var(--danger); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&family=Rajdhani:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+</head>
+<body>
+<div id="toolbar">
+  <svg class="icon-cam" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+  <span id="title-label">Video DJI Cloud</span>
+  <span id="badge">MISB ST 0601</span>
+</div>
+
+<div id="url-bar">
+  <input id="url-input" type="text" placeholder="rtsp:// · rtmp:// · /hls/live.m3u8 · .ts" spellcheck="false">
+  <button class="btn" onclick="loadStream()">▶ Play</button>
+  <button class="btn btn-stop" onclick="stopStream()">■ Stop</button>
+</div>
+
+<div id="video-container">
+  <video id="video" autoplay muted playsinline controls></video>
+  <div id="overlay">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+    <p id="overlay-text">Introduce una URL y pulsa Play</p>
+  </div>
+</div>
+
+<div id="status-bar">
+  <span class="dot" id="status-dot"></span>
+  <span id="status-text">Inactivo</span>
+  <span style="flex:1"></span>
+  <span id="stream-info" style="color:rgba(255,255,255,0.25);"></span>
+</div>
+
+<script>
+  // ── Layout dinámico ───────────────────────────────────────────────────────
+  function layout() {
+    const tb  = document.getElementById('toolbar').offsetHeight;
+    const ub  = document.getElementById('url-bar').offsetHeight;
+    const sb  = document.getElementById('status-bar').offsetHeight;
+    const vc  = document.getElementById('video-container');
+    vc.style.height = (window.innerHeight - tb - ub - sb) + 'px';
+  }
+  window.addEventListener('resize', layout);
+  layout();
+
+  // ── Parámetros de URL ─────────────────────────────────────────────────────
+  const params = new URLSearchParams(location.search);
+  const initSrc   = params.get('src')   || '';
+  const initTitle = params.get('title') || 'Video DJI Cloud';
+
+  document.getElementById('title-label').textContent = initTitle;
+  document.title = initTitle + ' – DJI Cloud';
+  if (initSrc) {
+    document.getElementById('url-input').value = initSrc;
+    loadStream();
+  }
+
+  // ── Player ────────────────────────────────────────────────────────────────
+  let hlsInstance = null;
+  const video     = document.getElementById('video');
+  const overlay   = document.getElementById('overlay');
+  const dotEl     = document.getElementById('status-dot');
+  const statusEl  = document.getElementById('status-text');
+  const infoEl    = document.getElementById('stream-info');
+
+  function setStatus(state, msg, info) {
+    dotEl.className = 'dot ' + (state || '');
+    statusEl.textContent = msg;
+    if (info !== undefined) infoEl.textContent = info;
+  }
+
+  function showOverlay(text) {
+    overlay.style.display = 'flex';
+    document.getElementById('overlay-text').textContent = text;
+  }
+  function hideOverlay() { overlay.style.display = 'none'; }
+
+  function stopStream() {
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    video.pause();
+    video.src = '';
+    video.removeAttribute('src');
+    showOverlay('Stream detenido');
+    setStatus('', 'Inactivo', '');
+  }
+
+  function loadStream() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) return;
+    stopStream();
+
+    setStatus('', 'Conectando…', url);
+
+    if (url.endsWith('.m3u8') || url.endsWith('.ts') || url.startsWith('/hls')) {
+      // HLS
+      if (Hls.isSupported()) {
+        hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hlsInstance.loadSource(url);
+        hlsInstance.attachMedia(video);
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {});
+          hideOverlay();
+          setStatus('live', '● En vivo', url);
+        });
+        hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            showOverlay('Error HLS: ' + data.type);
+            setStatus('error', 'Error HLS', data.type);
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.addEventListener('loadedmetadata', () => { video.play(); hideOverlay(); setStatus('live', '● En vivo', url); }, { once: true });
+      }
+    } else {
+      // RTSP / RTMP / mp4 / etc. → src directa
+      video.src = url;
+      video.play().then(() => { hideOverlay(); setStatus('live', '● En vivo', url); })
+                  .catch(e => { showOverlay('No se puede reproducir: ' + e.message); setStatus('error', 'Error', e.message); });
+    }
+  }
+
+  // Tecla Enter en URL bar
+  document.getElementById('url-input').addEventListener('keydown', e => { if (e.key === 'Enter') loadStream(); });
+
+  // Relé de mensajes desde map.html → actualizar stream sin recargar la ventana
+  window.addEventListener('message', e => {
+    if (e.data?.type === 'SET_STREAM') {
+      document.getElementById('url-input').value = e.data.src || '';
+      if (e.data.title) {
+        document.getElementById('title-label').textContent = e.data.title;
+        document.title = e.data.title + ' – DJI Cloud';
+      }
+      if (e.data.src) loadStream();
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- Excluir directorios generados en tiempo de ejecución del manifiesto de static assets -->
+  <ItemGroup>
+    <Content Remove="wwwroot\hls\**" />
+    <Content Remove="wwwroot\videos\**" />
+    <Content Remove="wwwroot\klv\**" />
+    <Content Remove="wwwroot\img\**" />
+    <Content Remove="wwwroot\missions\**" />
+    <Content Remove="wwwroot\routes\**" />
+    <Content Remove="wwwroot\flights\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.8" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <PackageReference Include="MQTTnet" Version="4.3.7.1207" />
+    <PackageReference Include="MQTTnet.AspNetCore" Version="4.3.7.1207" />
+    <PackageReference Include="MQTTnet.Extensions.ManagedClient" Version="4.3.7.1207" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.0" />
+  </ItemGroup>
+
+</Project>

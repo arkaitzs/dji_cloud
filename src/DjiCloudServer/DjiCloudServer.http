@@ -1,0 +1,6 @@
+@DjiCloudServer_HostAddress = http://localhost:5072
+
+GET {{DjiCloudServer_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
