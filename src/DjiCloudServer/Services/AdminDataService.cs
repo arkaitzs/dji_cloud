@@ -138,9 +138,11 @@ public class AdminDataService : IAdminDataService
     private const int MaxLogs = 100;
 
     private readonly string _cacheFilePath;
+    private readonly ILogger<AdminDataService> _logger;
 
-    public AdminDataService()
+    public AdminDataService(ILogger<AdminDataService> logger)
     {
+        _logger = logger;
         var appDir = AppDomain.CurrentDomain.BaseDirectory;
         _cacheFilePath = Path.Combine(appDir, "live_capacity_cache.json");
         LoadCache();
@@ -214,7 +216,7 @@ public class AdminDataService : IAdminDataService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AdminDataService Error] Error al guardar caché persistente: {ex.Message}");
+            _logger.LogError(ex, "[AdminDataService] Error al guardar caché persistente en {Path}", _cacheFilePath);
         }
     }
 
