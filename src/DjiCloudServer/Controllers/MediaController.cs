@@ -129,4 +129,51 @@ public class MediaController : ControllerBase
         System.IO.File.Delete(path);
         return Ok(new { deleted = name });
     }
+
+    // ─── Mock STS y S3 para DJI Pilot 2 / Dock ────────────────────────────────
+
+    /// <summary>
+    /// Mock endpoint para que DJI Pilot 2 obtenga credenciales STS de almacenamiento en la nube local.
+    /// Esto evita errores 404 en el mando cuando se suben imágenes/vídeos o durante la conexión inicial.
+    /// </summary>
+    [HttpPost("/storage/api/v1/workspaces/{workspaceId}/sts")]
+    public IActionResult GetStsCredentials(string workspaceId)
+    {
+        var requestHost = Request.Host.Host;
+        var requestPort = Request.Host.Port ?? 5072;
+        var apiScheme = Request.Scheme;
+
+        return Ok(new
+        {
+            code = 0,
+            message = "success",
+            data = new
+            {
+                bucket = "local-media-bucket",
+                credentials = new
+                {
+                    access_key_id = "mock_access_key_id",
+                    access_key_secret = "mock_access_key_secret",
+                    expire = 3600,
+                    security_token = "mock_security_token"
+                },
+                endpoint = $"{apiScheme}://{requestHost}:{requestPort}/api/media/mock-s3",
+                object_key_prefix = workspaceId,
+                provider = "minio",
+                region = "local-lan"
+            }
+        });
+    }
+
+    /// <summary>
+    /// Mock del endpoint S3 PUT/POST de MinIO para simular subidas exitosas de ficheros.
+    /// Retorna HTTP 200 OK para que Pilot 2 crea que se subió con éxito.
+    /// </summary>
+    [HttpPut("/api/media/mock-s3/{**path}")]
+    [HttpPost("/api/media/mock-s3/{**path}")]
+    [DisableRequestSizeLimit]
+    public IActionResult MockS3Upload(string path)
+    {
+        return Ok();
+    }
 }

@@ -1602,7 +1602,7 @@
                 <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
                     <span style="font-family:'Rajdhani',sans-serif; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent-cyan);">Stream DJI Pilot 2</span>
-                    <span style="font-size:9px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; margin-left:auto;">live_start_push · RTMP</span>
+                    <span style="font-size:9px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; margin-left:auto;">live_start_push · WebRTC</span>
                 </div>
                 <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
                     <div style="display:flex; flex-direction:column; gap:3px; flex:1; min-width:140px;">
@@ -1618,7 +1618,7 @@
                             <option value="">— cargando... —</option>
                         </select>
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:3px; min-width:130px;">
+                    <div style="display:none; flex-direction:column; gap:3px; min-width:130px;">
                         <div style="display:flex; align-items:center; justify-content:space-between;">
                             <label style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.3px;">IP servidor (RTMP)</label>
                             <button onclick="loadLocalIps()" title="Actualizar IPs" id="btn-refresh-ips"
@@ -1658,6 +1658,14 @@
                             <option value="2">SD (720p 1M)</option>
                             <option value="3" selected>HD (720p 1.5M)</option>
                             <option value="4">UHD (1080p 3M)</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:3px;">
+                        <label style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.3px;">Protocolo</label>
+                        <select id="dji-live-protocol"
+                                style="background:rgba(10,11,16,0.7); border:1px solid var(--panel-border); color:var(--text-main); border-radius:8px; padding:5px 7px; font-size:11px; font-family:'Outfit',sans-serif; outline:none; cursor:pointer;">
+                            <option value="rtmp" selected>RTMP (LAN)</option>
+                            <option value="webrtc">WebRTC (WHIP)</option>
                         </select>
                     </div>
                 </div>
@@ -3271,25 +3279,43 @@
             document.getElementById('drc-panel').style.display = 'none';
         }
 
+        // Clave localStorage para la IP preferida del servidor DRC
+        const _DRC_IP_KEY = 'drc_server_ip';
+
         async function drcEnter(gatewaySn, serverIp = null) {
             try {
-                const url = serverIp
-                    ? `/api/drc/enter/${encodeURIComponent(gatewaySn)}?serverIp=${encodeURIComponent(serverIp)}`
+                // Si no se pasa IP explícita, usar la guardada en localStorage (elección anterior)
+                const ipToUse = serverIp ?? localStorage.getItem(_DRC_IP_KEY) ?? null;
+
+                const url = ipToUse
+                    ? `/api/drc/enter/${encodeURIComponent(gatewaySn)}?serverIp=${encodeURIComponent(ipToUse)}`
                     : `/api/drc/enter/${encodeURIComponent(gatewaySn)}`;
 
                 const res  = await fetch(url, { method: 'POST' });
                 const data = await res.json();
 
-                // El servidor tiene varias IPs: mostrar selector al operador
+                // El backend no pudo determinar la IP automáticamente → mostrar selector UNA VEZ
                 if (res.status === 409 && data.error === 'MULTIPLE_IPS') {
+                    // Limpiar caché por si la IP guardada ya no es válida en esta red
+                    localStorage.removeItem(_DRC_IP_KEY);
                     const chosen = await showIpSelectModal(data.ips, gatewaySn);
-                    if (chosen) await drcEnter(gatewaySn, chosen);  // reintentar con IP elegida
+                    if (chosen) {
+                        localStorage.setItem(_DRC_IP_KEY, chosen); // recordar para siempre
+                        await drcEnter(gatewaySn, chosen);
+                    }
                     return;
                 }
 
                 if (!res.ok) {
                     addLog(`DRC ENTER ERROR → ${gatewaySn}: ${data.error || data.message || res.status}`, 'system');
                     return;
+                }
+
+                // Guardar la IP que funcionó (puede venir de la heurística automática del backend)
+                if (data.brokerAddress) {
+                    const ipOnly = data.brokerAddress.split(':')[0];
+                    if (ipOnly && ipOnly !== '127.0.0.1')
+                        localStorage.setItem(_DRC_IP_KEY, ipOnly);
                 }
 
                 addLog(`DRC ENTER → ${gatewaySn}: activo en ${data.brokerAddress}`, 'system');
@@ -4826,6 +4852,9 @@
         // ================= PANEL DE VIDEO / KLV (MISB ST 0601) =================
 
         let hlsInstance   = null;
+        let whepPc        = null;   // RTCPeerConnection activo para el stream WebRTC WHEP
+        let whepActive    = false;  // Flag para saber si la reproducción de WHEP está activa
+        let _activeDjiVideoId = ''; // video_id del stream activo (para live_stop_push)
         // Metadatos KLV activos en tiempo real
         let currentKlvData = {};
         let klvFrames     = [];
@@ -5091,10 +5120,18 @@
                     srcLbl.textContent = '(dron)';
                     srcLbl.style.color = 'var(--accent-success)';
                 } else {
+                    // camera_list vacío: dejar selector usable con opción manual y avisar al usuario
+                    sel.innerHTML = '<option value="67-0-0" data-video-index="normal-0">67-0-0 (manual)</option>';
                     srcLbl.textContent = '(manual)';
                     srcLbl.style.color = 'var(--text-muted)';
+                    const statusEl = document.getElementById('dji-live-status');
+                    if (statusEl && !statusEl.textContent.includes('cámara')) {
+                        statusEl.textContent = '⚠ El dron no reporta cámaras. Cambia de lente en el RC para refrescar.';
+                        statusEl.style.color = '#f59e0b';
+                    }
                 }
             } catch {
+                sel.innerHTML = '<option value="67-0-0" data-video-index="normal-0">67-0-0 (manual)</option>';
                 srcLbl.textContent = '(manual)';
             }
         }
@@ -5171,6 +5208,7 @@
             const localIp    = document.getElementById('dji-live-ip-select').value.trim() || null;
             const statusEl   = document.getElementById('dji-live-status');
             const ipEl       = document.getElementById('dji-live-ip');
+            const useWebRtc   = document.getElementById('dji-live-protocol').value === 'webrtc';
 
             if (!sn) {
                 statusEl.textContent = '✗ Selecciona un gateway (mando o dock) de la lista.';
@@ -5179,7 +5217,7 @@
                 return;
             }
 
-            statusEl.textContent = '⟳ Arrancando receptor RTMP y enviando live_start_push...';
+            statusEl.textContent = '⟳ Arrancando MediaMTX y enviando live_start_push...';
             statusEl.style.color = 'var(--accent-indigo)';
             ipEl.textContent = '';
 
@@ -5187,7 +5225,7 @@
                 const res  = await fetch('/api/stream/start-live', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ gatewaySn: sn, videoId: null, quality, cameraType, videoIndex, localIp })
+                    body: JSON.stringify({ gatewaySn: sn, videoId: null, quality, cameraType, videoIndex, useWebRtc })
                 });
                 
                 let data = null;
@@ -5205,18 +5243,29 @@
                     return;
                 }
 
-                _activeDjiGatewaySn = sn;   // guardar SN para el botón PARAR
+                _activeDjiGatewaySn = sn;           // para el botón PARAR
+                _activeDjiVideoId   = data.videoId || ''; // para live_stop_push
 
-                const aircraftInfo = data.aircraftSn && data.aircraftSn !== sn
-                    ? ` | aeronave: ${data.aircraftSn}` : '';
-                statusEl.textContent = `⟳ ffmpeg escuchando en :${data.rtmpPort} · Esperando ACK de DJI Pilot 2...`;
+                const modeLabel  = `${data.useWebRtc ? 'WebRTC' : 'RTMP'} → ${data.whepUrl ?? '...'}`;
+                const serverInfo = `${data.localIp} | ${modeLabel} | video_id: ${data.videoId}`;
+                const waitMsg    = '⟳ MediaMTX listo · Esperando ACK de DJI Pilot 2...';
+
+                statusEl.textContent = waitMsg;
                 statusEl.style.color = 'var(--accent-cyan)';
-                ipEl.textContent = `Servidor: ${data.localIp}:${data.rtmpPort} | video_id: ${data.videoId}${aircraftInfo}`;
+                ipEl.textContent = serverInfo;
 
-                document.getElementById('btn-dji-live-stop').style.display = '';
-                document.getElementById('btn-dji-live-start').style.display = 'none';
+                const btnStart = document.getElementById('btn-dji-live-start');
+                if (btnStart) {
+                    btnStart.disabled = true;
+                    btnStart.innerHTML = `⟳ Conectando cámara del dron...`;
+                    btnStart.style.display = '';
+                }
+                const btnStop = document.getElementById('btn-dji-live-stop');
+                if (btnStop) {
+                    btnStop.style.display = '';
+                }
 
-                addLog(`live_start_push → ${sn} | video_id: ${data.videoId} | RTMP: ${data.rtmpUrl} | puerto: ${data.rtmpPort}`, 'system');
+                addLog(`live_start_push → ${sn} | video_id: ${data.videoId} | url: ${data.streamUrl}`, 'system');
                 showStreamDiag(sn);
 
                 // Mostrar barra de lentes y resetear estilos
@@ -5236,8 +5285,12 @@
                     lensBar.style.display = 'flex';
                 }
 
-                // Reproducir el HLS específico de este dron
-                pollServicesReply(sn, data.hlsUrl);
+                // Iniciar la pestaña de directo y reproducir con delay
+                switchVTab('live');
+                playWhep(data.whepUrl);
+
+                // Esperar ACK y monitorear estado en segundo plano
+                pollServicesReply(sn, data.hlsUrl ?? null, 10000, null);
             } catch (err) {
                 console.error("Error en startDjiLive:", err);
                 statusEl.textContent = `✗ Error: ${err.message || 'Error de red'}`;
@@ -5297,21 +5350,26 @@
         }
 
         async function runStreamDiag() {
-            // 1 · Verificar el puerto real del stream activo para este gateway
+            // Verificar estado del servidor MediaMTX (WebRTC)
+            const portEl = document.getElementById('diag-port');
             try {
-                const snParam = _diagGatewaySn ? `/${encodeURIComponent(_diagGatewaySn)}` : '';
-                const r = await fetch(`/api/stream/port-check${snParam}`, { cache: 'no-store' });
-                const d = await r.json();
-                const portEl = document.getElementById('diag-port');
-                if (d.portBound) {
-                    portEl.innerHTML = `✅ Puerto ${d.port}: ffmpeg escuchando`;
-                    portEl.style.color = 'var(--accent-success)';
-                    document.getElementById('btn-open-fw').style.display = 'none';
+                const mediaMtxBase = document.getElementById('dji-live-ip')?.textContent?.match(/WebRTC → (http:\/\/[^/]+)/)?.[1];
+                if (mediaMtxBase) {
+                    try {
+                        const check = await fetch(`${mediaMtxBase}/`, { method: 'GET', signal: AbortSignal.timeout(2000) });
+                        portEl.innerHTML = `✅ MediaMTX alcanzable en ${mediaMtxBase.replace('http://','').split('/')[0]}`;
+                        portEl.style.color = 'var(--accent-success)';
+                        document.getElementById('btn-open-fw').style.display = 'none';
+                    } catch {
+                        portEl.innerHTML = `✗ MediaMTX no responde en :8889 — ¿está corriendo mediamtx.exe?`;
+                        portEl.style.color = 'var(--accent-danger)';
+                    }
                 } else {
-                    portEl.innerHTML = `✗ Puerto ${d.port}: no enlazado (ffmpeg no arrancó?)`;
-                    portEl.style.color = 'var(--accent-danger)';
+                    portEl.innerHTML = '⚡ Modo WebRTC — MediaMTX activo';
+                    portEl.style.color = 'var(--accent-indigo)';
+                    document.getElementById('btn-open-fw').style.display = 'none';
                 }
-            } catch { document.getElementById('diag-port').textContent = '— Puerto: error de consulta'; }
+            } catch { portEl.textContent = '— MediaMTX: error de consulta'; }
 
             // 2 · Topics suscritos por el RC (diagnóstico subscripción)
             try {
@@ -5377,24 +5435,13 @@
                 }
             } catch { document.getElementById('diag-mqtt').textContent = '— Error al cargar logs'; }
 
-            // 5 · Firewall: mostrar botón si el puerto no está enlazado
-            try {
-                const r = await fetch('/api/stream/port-check', { cache: 'no-store' });
-                const d = await r.json();
-                const fwEl = document.getElementById('diag-fw');
-                if (!d.portBound && !d.ffmpegRunning) {
-                    fwEl.innerHTML = '⚠ ffmpeg no está corriendo';
-                    fwEl.style.color = '#f59e0b';
-                } else if (d.portBound) {
-                    // Puerto enlazado pero dron no conecta → posible firewall
-                    fwEl.innerHTML = '⚠ Puerto enlazado pero dron no conecta — puede ser el Firewall de Windows';
-                    fwEl.style.color = '#f59e0b';
-                    document.getElementById('btn-open-fw').style.display = '';
-                } else {
-                    fwEl.innerHTML = '— Firewall: sin datos';
-                    fwEl.style.color = 'var(--text-muted)';
-                }
-            } catch { /* ignorar */ }
+            // 5 · Firewall: el dron necesita alcanzar el puerto 8889 (MediaMTX WHIP WebRTC)
+            const fwEl = document.getElementById('diag-fw');
+            if (fwEl) {
+                fwEl.innerHTML = '⚠ Dron hace push WebRTC a :8889. Si no hay vídeo, el Firewall bloquea el puerto 8889 inbound.';
+                fwEl.style.color = '#f59e0b';
+                document.getElementById('btn-open-fw').style.display = 'none';
+            }
         }
 
         async function openFirewallPort() {
@@ -5417,7 +5464,8 @@
             }
         }
 
-        async function pollServicesReply(gatewaySn, hlsUrl, timeoutMs = 10000) {
+        // whepUrl: si está presente, se usa playWhep() en lugar de waitForHlsDji() al recibir ACK
+        async function pollServicesReply(gatewaySn, hlsUrl, timeoutMs = 10000, whepUrl = null) {
             const statusEl = document.getElementById('dji-live-status');
             const start    = Date.now();
 
@@ -5429,7 +5477,7 @@
             };
             connection.on('StreamAck', ackHandler);
 
-            // Polling HTTP como fallback (pasa 'since' para ignorar respuestas antiguas)
+            // Polling HTTP como fallback
             let pollingDone = false;
             const pollPromise = (async () => {
                 while (!pollingDone && Date.now() - start < timeoutMs) {
@@ -5443,25 +5491,31 @@
                 return null;
             })();
 
-            // Esperar lo que llegue primero: SignalR push o polling
             const ack = await Promise.race([signalRPromise, pollPromise]);
             pollingDone = true;
             connection.off('StreamAck', ackHandler);
 
+            const startPlayback = () => {
+                if (whepUrl) {
+                    switchVTab('live');
+                    playWhep(whepUrl);
+                }
+            };
+
             if (ack?.result === 0) {
-                statusEl.textContent = '✓ DJI Pilot 2 ACK — esperando push de vídeo...';
+                statusEl.textContent = '✓ DJI Pilot 2 ACK';
                 statusEl.style.color = 'var(--accent-success)';
-                waitForHlsDji(hlsUrl);
+                startPlayback();
             } else if (ack && ack.result !== undefined && ack.result !== 0) {
                 statusEl.textContent = `✗ DJI Pilot 2 rechazó el comando (result=${ack.result}). Prueba otra cámara.`;
                 statusEl.style.color = 'var(--accent-danger)';
                 document.getElementById('btn-dji-live-stop').style.display = 'none';
                 document.getElementById('btn-dji-live-start').style.display = '';
+                stopWhep();
             } else {
-                // Sin ACK en timeout: continuar igualmente (algunos FW no responden al ACK)
-                statusEl.textContent = '⟳ Sin ACK de DJI Pilot 2 — esperando push de vídeo...';
-                statusEl.style.color = 'var(--accent-cyan)';
-                waitForHlsDji(hlsUrl);
+                statusEl.textContent = '✓ Conectado';
+                statusEl.style.color = 'var(--accent-success)';
+                startPlayback();
             }
         }
 
@@ -5567,11 +5621,13 @@
                     addLog(`Error al detener stream DJI: ${e.message}`, 'system');
                 }
                 _activeDjiGatewaySn = '';
+                _activeDjiVideoId   = '';
             } else {
                 // Parar relay legacy (URL manual)
                 await fetch('/api/stream/stop', { method: 'POST' });
             }
 
+            stopWhep();   // cierra RTCPeerConnection WebRTC si estaba activo
             stopHls();
             const video = document.getElementById('klv-video');
             video.pause(); video.src = '';
@@ -5597,6 +5653,140 @@
                 djiStatus.style.color = 'var(--text-muted)';
             }
             addLog('Stream detenido.', 'system');
+        }
+
+        // ─── Reproductor WebRTC WHEP ──────────────────────────────────────────
+        async function playWhep(whepUrl) {
+            stopWhep();
+            stopHls();
+            
+            whepActive = true;
+            
+            const video = document.getElementById('klv-video');
+            const ph    = document.getElementById('video-placeholder');
+            ph.style.display = 'none';
+
+            let attempts = 0;
+            const maxAttempts = 8;
+            let success = false;
+
+            while (attempts < maxAttempts && !success && whepActive) {
+                attempts++;
+
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                whepPc = pc;
+
+                pc.ontrack = (e) => {
+                    video.srcObject = e.streams[0];
+                    video.play().catch(() => {});
+                };
+
+                pc.oniceconnectionstatechange = () => {
+                    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                        addLog(`WebRTC: conexión perdida (${pc.iceConnectionState})`, 'system');
+                        ph.style.display = 'flex';
+                    }
+                };
+
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+
+                    const res = await fetch(whepUrl, {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/sdp' },
+                        body:    offer.sdp
+                    });
+                    
+                    if (res.status === 404) {
+                        throw new Error("404");
+                    }
+                    if (!res.ok) {
+                        throw new Error(`WHEP ${res.status}: ${await res.text()}`);
+                    }
+
+                    if (!whepActive) {
+                        pc.close();
+                        return;
+                    }
+
+                    const answerSdp = await res.text();
+                    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+                    addLog(`⚡ WebRTC WHEP conectado → ${whepUrl}`, 'system');
+                    success = true;
+
+                    // Restaurar botón Iniciar y ocultarlo
+                    const btnStart = document.getElementById('btn-dji-live-start');
+                    if (btnStart) {
+                        btnStart.disabled = false;
+                        btnStart.innerHTML = `🔴 Iniciar Stream DJI`;
+                        btnStart.style.display = 'none';
+                    }
+                    // Mostrar botón Parar
+                    const btnStop = document.getElementById('btn-dji-live-stop');
+                    if (btnStop) {
+                        btnStop.style.display = '';
+                    }
+                } catch (err) {
+                    pc.close();
+                    if (whepPc === pc) {
+                        whepPc = null;
+                    }
+
+                    if (!whepActive) {
+                        return;
+                    }
+
+                    if (err.message === "404" && attempts < maxAttempts) {
+                        const statusEl = document.getElementById('dji-live-status');
+                        if (statusEl) {
+                            statusEl.textContent = `⟳ Conectando cámara del dron...`;
+                            statusEl.style.color = 'var(--accent-cyan)';
+                        }
+                        
+                        // Actualizar texto del botón Start
+                        const btnStart = document.getElementById('btn-dji-live-start');
+                        if (btnStart) {
+                            btnStart.innerHTML = `⟳ Conectando cámara del dron...`;
+                        }
+
+                        addLog(`⟳ WHEP: El stream del dron aún no está listo (404). Reintentando en 2s... (Intento ${attempts}/${maxAttempts})`, 'system');
+                        await new Promise(r => setTimeout(r, 2000));
+                    } else {
+                        // Error definitivo
+                        addLog(`✗ WHEP error: ${err.message}`, 'system');
+                        const statusEl = document.getElementById('dji-live-status');
+                        if (statusEl) {
+                            statusEl.textContent = `✗ El dron no ha podido enviar el vídeo`;
+                            statusEl.style.color = 'var(--accent-danger)';
+                        }
+                        
+                        const btnStart = document.getElementById('btn-dji-live-start');
+                        if (btnStart) {
+                            btnStart.disabled = false;
+                            btnStart.innerHTML = `🔴 Iniciar Stream DJI`;
+                            btnStart.style.display = '';
+                        }
+                        const btnStop = document.getElementById('btn-dji-live-stop');
+                        if (btnStop) {
+                            btnStop.style.display = 'none';
+                        }
+                        ph.style.display = 'flex';
+                        stopWhep();
+                        return;
+                    }
+                }
+            }
+        }
+
+        function stopWhep() {
+            whepActive = false;
+            if (whepPc) { whepPc.close(); whepPc = null; }
+            const video = document.getElementById('klv-video');
+            if (video && video.srcObject) { video.srcObject = null; }
         }
 
         function playHls(url) {

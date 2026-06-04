@@ -341,3 +341,31 @@ FUENTES/HelpTecnico/
 WhatsApp Video 2026-06-01 at 11.15.55.mp4
 
 AUDIT_REPORT.md
+
+# DJI Cloud Server runtime generated directories
+src/DjiCloudServer/wwwroot/hls/
+src/DjiCloudServer/wwwroot/videos/
+src/DjiCloudServer/wwwroot/klv/
+src/DjiCloudServer/wwwroot/missions/
+src/DjiCloudServer/wwwroot/routes/
+src/DjiCloudServer/wwwroot/flights/
+src/DjiCloudServer/wwwroot/mqtt_logs/
+
+
+dji_cloud_all_logs_20260604 (5).csv
+
+log_media1.txt
+
+log red.pcapng
+
+dji_cloud_all_logs_20260604 (7).csv
+
+log.pcapng
+
+quitar.jpg
+
+video1.jpg
+
+video2.jpg
+
+video3.png

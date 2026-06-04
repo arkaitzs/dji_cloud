@@ -139,10 +139,12 @@ public class AdminDataService : IAdminDataService
 
     private readonly string _cacheFilePath;
     private readonly ILogger<AdminDataService> _logger;
+    private readonly IMqttFileLogger _fileLogger;
 
-    public AdminDataService(ILogger<AdminDataService> logger)
+    public AdminDataService(ILogger<AdminDataService> logger, IMqttFileLogger fileLogger)
     {
         _logger = logger;
+        _fileLogger = fileLogger;
         var appDir = AppDomain.CurrentDomain.BaseDirectory;
         _cacheFilePath = Path.Combine(appDir, "live_capacity_cache.json");
         LoadCache();
@@ -234,6 +236,13 @@ public class AdminDataService : IAdminDataService
         while (_logs.Count > MaxLogs)
         {
             _logs.TryDequeue(out _);
+        }
+
+        // Registrar en el log de archivo unificado, EXCEPTO si es de nivel MQTT (para evitar redundancia, 
+        // ya que el tráfico MQTT se registra en detalle con su propio payload y topic en Program.cs)
+        if (level != "MQTT")
+        {
+            _fileLogger.Log(source, level, payload: message);
         }
     }
 
