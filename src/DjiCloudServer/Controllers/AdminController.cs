@@ -72,6 +72,49 @@ public class AdminController : ControllerBase
         return codes is null ? NotFound(new { error = "Sin datos HMS" }) : Ok(codes);
     }
 
+    /// <summary>
+    /// Estado estructurado del dron: modo, batería, posición, GPS, gimbal…
+    /// Útil para recuperar la vista del mapa tras reconexión SignalR o recarga de página.
+    /// Devuelve 404 si el SN no existe en memoria (dron nunca visto en esta sesión).
+    /// </summary>
+    [HttpGet("drone-state/{sn}")]
+    public IActionResult GetDroneState(string sn)
+    {
+        var devices = _adminDataService.GetDevices();
+        var device  = devices.FirstOrDefault(d =>
+            string.Equals(d.Sn, sn, StringComparison.OrdinalIgnoreCase));
+        if (device is null)
+            return NotFound(new { error = $"Dron '{sn}' no encontrado en memoria" });
+        return Ok(device);
+    }
+
+    /// <summary>
+    /// Todos los drones actualmente online con su estado completo.
+    /// El frontend llama a este endpoint al iniciar o al reconectar SignalR
+    /// para restaurar marcadores y tarjetas sin esperar el siguiente OSD (≤2s).
+    /// </summary>
+    [HttpGet("active-drones")]
+    public IActionResult GetActiveDrones()
+    {
+        var devices = _adminDataService.GetDevices()
+            .Where(d => d.IsOnline
+                     && d.DeviceType != "Mando"
+                     && d.DeviceType != "Cliente MQTT"
+                     && d.DeviceType != "Dock")
+            .ToList();
+        return Ok(devices);
+    }
+
+    /// <summary>Payload MQTT raw del último OSD recibido (solo para depuración).</summary>
+    [HttpGet("drone-raw/{sn}")]
+    public IActionResult GetDroneRaw(string sn)
+    {
+        var payload = _adminDataService.GetLastStatePayload(sn);
+        if (payload == null)
+            return NotFound(new { error = "Sin payload raw para esta aeronave" });
+        return Content(payload, "application/json");
+    }
+
     /// <summary>Últimas suscripciones MQTT registradas (diagnóstico de topics).</summary>
     [HttpGet("mqtt-subs")]
     public IActionResult GetMqttSubs()
