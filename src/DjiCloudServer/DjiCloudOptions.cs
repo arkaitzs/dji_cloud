@@ -6,9 +6,16 @@ namespace DjiCloudServer;
 public class DjiCloudOptions
 {
     public MqttOptions Mqtt { get; set; } = new();
-    public string AppId  { get; set; } = string.Empty;
-    public string AppKey { get; set; } = string.Empty;
-    public string License { get; set; } = string.Empty;
+    public string AppId    { get; set; } = string.Empty;
+    public string AppKey   { get; set; } = string.Empty;
+    public string License  { get; set; } = string.Empty;
+
+    /// <summary>
+    /// IP local del servidor en la red del dron (ej. "192.168.1.150").
+    /// Cuando está configurada, se usa directamente en drc_mode_enter y live_start_push
+    /// sin necesidad de selección manual. Dejar vacío para detección automática.
+    /// </summary>
+    public string ServerIp { get; set; } = string.Empty;
 }
 
 public class MqttOptions

@@ -1602,7 +1602,7 @@
                 <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
                     <span style="font-family:'Rajdhani',sans-serif; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent-cyan);">Stream DJI Pilot 2</span>
-                    <span style="font-size:9px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; margin-left:auto;">live_start_push · RTMP</span>
+                    <span style="font-size:9px; color:var(--text-muted); font-family:'JetBrains Mono',monospace; margin-left:auto;">live_start_push · WebRTC</span>
                 </div>
                 <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
                     <div style="display:flex; flex-direction:column; gap:3px; flex:1; min-width:140px;">
@@ -1618,7 +1618,7 @@
                             <option value="">— cargando... —</option>
                         </select>
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:3px; min-width:130px;">
+                    <div style="display:none; flex-direction:column; gap:3px; min-width:130px;">
                         <div style="display:flex; align-items:center; justify-content:space-between;">
                             <label style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.3px;">IP servidor (RTMP)</label>
                             <button onclick="loadLocalIps()" title="Actualizar IPs" id="btn-refresh-ips"
@@ -1631,7 +1631,7 @@
                             <option value="">— cargando... —</option>
                         </select>
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:3px;">
+                    <div id="dji-camera-select-panel" style="display:flex; flex-direction:column; gap:3px;">
                         <div style="display:flex; align-items:center; justify-content:space-between;">
                             <label style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.3px;">Cámara</label>
                             <span id="dji-cam-source" style="font-size:8px; color:var(--text-muted); font-family:'JetBrains Mono',monospace;"></span>
@@ -1651,13 +1651,21 @@
                     </div>
                     <div style="display:flex; flex-direction:column; gap:3px;">
                         <label style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.3px;">Calidad</label>
-                        <select id="dji-live-quality"
+                        <select id="dji-live-quality" onchange="onQualityChange(this)"
                                 style="background:rgba(10,11,16,0.7); border:1px solid var(--panel-border); color:var(--text-main); border-radius:8px; padding:5px 7px; font-size:11px; font-family:'Outfit',sans-serif; outline:none; cursor:pointer;">
                             <option value="0">Adaptativa</option>
                             <option value="1">Fluida (540p)</option>
                             <option value="2">SD (720p 1M)</option>
                             <option value="3" selected>HD (720p 1.5M)</option>
                             <option value="4">UHD (1080p 3M)</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:3px;">
+                        <label style="font-size:9px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.3px;">Protocolo</label>
+                        <select id="dji-live-protocol"
+                                style="background:rgba(10,11,16,0.7); border:1px solid var(--panel-border); color:var(--text-main); border-radius:8px; padding:5px 7px; font-size:11px; font-family:'Outfit',sans-serif; outline:none; cursor:pointer;">
+                            <option value="rtmp">RTMP (LAN)</option>
+                            <option value="webrtc" selected>WebRTC (WHIP)</option>
                         </select>
                     </div>
                 </div>
@@ -1723,25 +1731,7 @@
             <!-- Log ffmpeg (oculto por defecto) -->
             <pre id="ffmpeg-log-box" style="display:none; margin-top:6px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:8px; font-size:9px; color:#a7f3d0; font-family:'JetBrains Mono',monospace; max-height:120px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></pre>
 
-            <!-- Panel de diagnóstico de stream (visible durante el stream) -->
-            <div id="stream-diag-panel" style="display:none; margin-top:6px; background:rgba(99,102,241,0.05); border:1px solid rgba(99,102,241,0.15); border-radius:8px; padding:8px 10px; display:none; flex-direction:column; gap:5px;">
-                <div style="display:flex; align-items:center; justify-content:space-between;">
-                    <span style="font-size:9px; font-weight:700; color:var(--accent-indigo); text-transform:uppercase; letter-spacing:0.4px;">Diagnóstico de conexión</span>
-                    <button onclick="runStreamDiag()" style="background:none;border:1px solid rgba(99,102,241,0.3);color:var(--accent-indigo);border-radius:4px;padding:1px 7px;font-size:9px;cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:700;">↻ Verificar</button>
-                </div>
-                <div id="diag-port"   style="font-size:9px; font-family:'JetBrains Mono',monospace; color:var(--text-muted);">— Puerto 1935: ?</div>
-                <div id="diag-fw"     style="font-size:9px; font-family:'JetBrains Mono',monospace; color:var(--text-muted);">— Firewall: ?</div>
-                <div style="font-size:9px; color:var(--accent-indigo); font-weight:700; margin-top:3px;">Topics MQTT suscritos por el RC:</div>
-                <div id="diag-subs"   style="font-size:9px; font-family:'JetBrains Mono',monospace; color:var(--text-muted); max-height:50px; overflow-y:auto; white-space:pre-wrap;">— (reinicia el servidor para ver)</div>
-                <div style="font-size:9px; color:var(--accent-indigo); font-weight:700; margin-top:3px;">Códigos HMS activos (errores dron):</div>
-                <div id="diag-hms"    style="font-size:9px; font-family:'JetBrains Mono',monospace; color:#f59e0b; max-height:60px; overflow-y:auto; white-space:pre-wrap;">— sin datos</div>
-                <div style="font-size:9px; color:var(--accent-indigo); font-weight:700; margin-top:3px;">Últimos eventos MQTT:</div>
-                <div id="diag-mqtt"   style="font-size:9px; font-family:'JetBrains Mono',monospace; color:var(--text-muted); max-height:60px; overflow-y:auto; white-space:pre-wrap;"></div>
-                <button onclick="openFirewallPort()" id="btn-open-fw"
-                        style="display:none; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3); color:#f87171; border-radius:6px; padding:4px 10px; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; text-transform:uppercase;">
-                    🔓 Abrir puerto 1935 en Firewall Windows
-                </button>
-            </div>
+            <!-- Panel de diagnóstico de stream eliminado -->
         </div>
 
 
@@ -2027,7 +2017,6 @@
     <script>
         // SN del gateway cuyo stream DJI está activo ahora mismo (para el botón PARAR)
         var _activeDjiGatewaySn = '';
-        var _diagGatewaySn = '';
 
         // Coordenadas iniciales por defecto (Base local)
         const baseCoords = [36.834, -2.463];
@@ -2039,6 +2028,22 @@
 
         // --- Configuración y Estado Global de Altitud ---
         let maxAltitude = 120; // Valor de escala por defecto
+
+        // Referencia de altitud seleccionada por el operador:
+        //   'ASL'   → campo "height" DJI    (sobre el nivel del mar / elipsoide)
+        //   'PILOT' → campo "elevation" DJI  (sobre el punto de despegue del mando)
+        let altRef = 'ASL';
+
+        // Devuelve la altitud a mostrar para un dron dado su sn,
+        // usando la referencia seleccionada por el operador.
+        function getDisplayAlt(sn) {
+            const cache = dronePositionCache && dronePositionCache[sn];
+            if (!cache) return 0;
+            return altRef === 'PILOT' ? (cache.elevation ?? cache.altitude) : cache.altitude;
+        }
+
+        // Etiqueta corta para la referencia actual (se muestra en la bubble del dron)
+        function altRefLabel() { return altRef === 'PILOT' ? 'AGL' : 'ASL'; }
 
         function getAltitudeColor(altitude) {
             if (altitude <= maxAltitude * 0.15) return '#10b981';   // Verde (0 - 15%)
@@ -2066,13 +2071,41 @@
             `;
         }
 
+        // Refresca los iconos de todos los drones activos en el mapa al cambiar altRef.
+        function refreshDroneIcons() {
+            for (const sn in droneMarkers) {
+                const cache = dronePositionCache[sn];
+                if (!cache) continue;
+                const altDisplay = altRef === 'PILOT' ? (cache.elevation ?? cache.altitude) : cache.altitude;
+                const heading    = droneStatusCache[sn]?.attHead ?? 0;
+                const color      = getAltitudeColor(altDisplay);
+                droneMarkers[sn].setIcon(L.divIcon({
+                    html: getDroneMarkerHtml(altDisplay, color, heading),
+                    className: 'custom-drone-marker',
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                }));
+            }
+            updateLegendUI();
+            addLog(`Referencia de altitud: ${altRef === 'PILOT' ? 'AGL (sobre piloto)' : 'ASL (sobre el nivel del mar)'}`, 'system');
+        }
+
+        function setAltRef(ref) {
+            altRef = ref;
+            document.getElementById('btn-alt-asl').style.background  = ref === 'ASL'   ? 'var(--accent-cyan)'   : 'rgba(255,255,255,0.06)';
+            document.getElementById('btn-alt-agl').style.background  = ref === 'PILOT' ? 'var(--accent-indigo)' : 'rgba(255,255,255,0.06)';
+            document.getElementById('btn-alt-asl').style.color       = ref === 'ASL'   ? '#000'                 : 'var(--text-muted)';
+            document.getElementById('btn-alt-agl').style.color       = ref === 'PILOT' ? '#fff'                 : 'var(--text-muted)';
+            refreshDroneIcons();
+        }
+
         function applyMaxAltitude() {
             const inputVal = parseFloat(document.getElementById('max-altitude-input').value);
             if (isNaN(inputVal) || inputVal <= 0) {
                 alert("Por favor introduce una altura máxima válida mayor que 0.");
                 return;
             }
-            
+
             maxAltitude = inputVal;
             updateLegendUI();
             
@@ -2244,13 +2277,28 @@
         legend.onAdd = function (map) {
             var div = L.DomUtil.create('div', 'legend');
             div.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 12px;">
                     <h4 style="margin: 0; font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; color: var(--accent-cyan); letter-spacing: 0.5px;">Altitud de Vuelo</h4>
                     <div style="display: flex; align-items: center; gap: 6px;">
                         <span style="font-size: 9px; color: var(--text-muted); font-weight: 600;">MAX:</span>
                         <input type="number" id="max-altitude-input" value="120" style="width: 55px; background: rgba(10,11,16,0.8); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 2px 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace; text-align: center; font-weight: bold; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--accent-indigo)'" onblur="this.style.borderColor='var(--panel-border)'" />
                         <button onclick="applyMaxAltitude()" style="background: var(--accent-indigo); border: none; color: #fff; border-radius: 6px; padding: 2px 8px; font-size: 10px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 700; transition: all 0.2s;" onmouseover="this.style.background='var(--accent-cyan)'" onmouseout="this.style.background='var(--accent-indigo)'">OK</button>
                     </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+                    <span style="font-size:9px; color:var(--text-muted); font-weight:600; white-space:nowrap;">REFERENCIA:</span>
+                    <button id="btn-alt-asl"
+                        onclick="setAltRef('ASL')"
+                        title="Altura sobre el nivel del mar (campo 'height' DJI)"
+                        style="flex:1; background:var(--accent-cyan); border:none; color:#000; border-radius:5px; padding:2px 0; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; transition:all 0.2s;">
+                        ASL
+                    </button>
+                    <button id="btn-alt-agl"
+                        onclick="setAltRef('PILOT')"
+                        title="Altura sobre el punto de despegue del piloto (campo 'elevation' DJI)"
+                        style="flex:1; background:rgba(255,255,255,0.06); border:none; color:var(--text-muted); border-radius:5px; padding:2px 0; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; transition:all 0.2s;">
+                        AGL
+                    </button>
                 </div>
                 <div id="legend-ranges-container" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-family: 'Outfit', sans-serif; font-weight: 500;">
                     <!-- Se rellena dinámicamente -->
@@ -2260,6 +2308,18 @@
         };
         legend.addTo(map);
         updateLegendUI();
+
+        // ── Timeout de offline — debe coincidir con DroneOfflineMs en AdminDataService.cs ──
+        // A 0.5 Hz (modo normal OSD) equivale a ~7 paquetes perdidos antes de marcar offline.
+        const DRONE_OFFLINE_MS = 15000;
+
+        // Dron seleccionado actualmente por el operador (null = ninguno).
+        // Se actualiza al hacer click en una tarjeta del HUD o en un marcador del mapa.
+        // El badge global refleja el estado de este dron cuando está seleccionado.
+        var selectedDroneSn = null;
+
+        // Cache de posición: almacena altitude (ASL) y elevation (AGL/Piloto) por dron
+        var dronePositionCache = {};
 
         // Diccionarios para gestionar marcadores, polígonos de cámara, y líneas de enlace al centro
         var droneMarkers = {};
@@ -2271,7 +2331,8 @@
         var gatewayLastSeen = {};
 
         // Función para generar el HTML del marcador de dron personalizado
-        function getDroneMarkerHtml(altitude, color, heading) {
+        // altDisplay  = valor ya calculado según altRef (ASL o AGL)
+        function getDroneMarkerHtml(altDisplay, color, heading) {
             return `
                 <div class="drone-marker-container">
                     <div class="pulse-ring" style="border-color: ${color};"></div>
@@ -2281,7 +2342,7 @@
                         </svg>
                     </div>
                     <div class="drone-altitude-bubble" style="background-color: ${color};">
-                        ${altitude.toFixed(0)}m
+                        ${altDisplay.toFixed(0)}m <span style="font-size:7px;opacity:0.85;letter-spacing:0.3px;">${altRefLabel()}</span>
                     </div>
                 </div>
             `;
@@ -2504,35 +2565,85 @@
             }
         }
 
-        // Función para agregar logs
-        function addLog(message, type = 'system') {
-            const container = document.getElementById('log-container');
-            const line = document.createElement('div');
-            line.className = `log-line ${type}`;
-            const time = new Date().toLocaleTimeString();
-            line.textContent = `[${time}] ${message}`;
-            container.appendChild(line);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // Conectar al Hub de SignalR
-        const serverStatusBadge = document.getElementById('server-status-badge');
-        const serverStatusText = document.getElementById('server-status-text');
-        const droneStatusBadge = document.getElementById('drone-status-badge');
-        const droneStatusText = document.getElementById('drone-status-text');
-
-        const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/telemetryHub")
-            .withAutomaticReconnect()
-            .build();
-
-        // ── Estado de drones (batería, modo, GPS) — llega aunque no haya GPS ──────
-        const droneStatusCache = {};
-
         // ── Mapeo gateway ↔ aeronave (actualizado por pollGateways) ──────────────
         let gatewayData       = {};  // gatewaySn → GatewayInfoDto
         let aircraftToGateway = {};  // aircraftSn → gatewaySn
+ 
+        /**
+         * syncActiveDevices — restaura el estado del mapa desde la REST API.
+         *
+         * Se llama en tres momentos:
+         *   1. Arranque inicial  (connection.start().then)
+         *   2. Reconexión SignalR (connection.onreconnected)
+         *   3. Polling periódico  (setInterval cada 5s)
+         *
+         * Usa GET /api/admin/active-drones (solo drones online) para restaurar
+         * marcadores y tarjetas sin esperar el siguiente OSD (hasta 2s en modo normal).
+         * También limpia inmediatamente los badges de drones que el servidor ya marcó
+         * offline, en lugar de esperar los 10s del watchdog frontend.
+         */
+        async function syncActiveDevices() {
+            try {
+                const res = await fetch('/api/admin/active-drones', { cache: 'no-store' });
+                if (!res.ok) return;
+                const activeDrones = await res.json();
 
+                // SNs que el servidor considera online en este momento
+                const serverOnline = new Set(activeDrones.map(d => d.sn));
+
+                // ── Drones online: restaurar / actualizar ─────────────────────
+                activeDrones.forEach(dev => {
+                    // Refrescar watchdog para que no parpadee a "Inactivo"
+                    droneLastSeen[dev.sn] = Date.now();
+
+                    // Restaurar caché de estado (batería, modo, GPS…)
+                    handleUpdateDroneStatus(
+                        dev.sn,
+                        dev.batteryPercent,
+                        dev.remainFlightTime,
+                        dev.modeCode,
+                        dev.gpsFixed ? 1 : 0,
+                        dev.gpsNumber,
+                        dev.heading,
+                        dev.horizontalSpeed,
+                        0   // deviceType 0 = aeronave directa (no relay de RC)
+                    );
+
+                    // Restaurar marcador y trayectoria si hay posición válida
+                    if (dev.latitude !== 0 || dev.longitude !== 0) {
+                        handleUpdateDronePosition(
+                            dev.sn,
+                            dev.latitude, dev.longitude, dev.altitude,
+                            dev.gimbalPitch, dev.gimbalRoll, dev.gimbalYaw,
+                            dev.heading, dev.zoomFactor,
+                            dev.batteryPercent, dev.gpsNumber, dev.sdrFreqBand
+                        );
+                    }
+                });
+
+                // ── Drones que el frontend conoce pero el servidor ya marcó offline ──
+                // Forzar badge "Inactivo" inmediatamente en lugar de esperar
+                // los 10s del watchdog frontend, para evitar estado inconsistente
+                // tras una reconexión larga de SignalR.
+                const now = Date.now();
+                for (const sn in droneLastSeen) {
+                    if (serverOnline.has(sn)) continue;
+                    if (now - droneLastSeen[sn] < 5000) continue; // datos aún frescos
+                    const row    = document.getElementById(`drone-row-${sn}`);
+                    const badge  = row?.querySelector('.status-badge');
+                    if (badge && badge.classList.contains('connected')) {
+                        badge.className = 'status-badge disconnected';
+                        badge.innerHTML = '<span class="status-dot"></span>Inactivo';
+                    }
+                    const marker = droneMarkers[sn];
+                    if (marker) marker.setOpacity(0.4);
+                }
+
+            } catch (err) {
+                console.error('[syncActiveDevices] Error:', err);
+            }
+        }
+ 
         async function pollGateways() {
             try {
                 const res      = await fetch('/api/admin/gateways', { cache: 'no-store' });
@@ -2627,16 +2738,60 @@
             } catch { /* error de red — ignorar */ }
         }
 
+        // Función para agregar logs
+        function addLog(message, type = 'system') {
+            const container = document.getElementById('log-container');
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            const time = new Date().toLocaleTimeString();
+            line.textContent = `[${time}] ${message}`;
+            container.appendChild(line);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Conectar al Hub de SignalR
+        const serverStatusBadge = document.getElementById('server-status-badge');
+        const serverStatusText = document.getElementById('server-status-text');
+        const droneStatusBadge = document.getElementById('drone-status-badge');
+        const droneStatusText = document.getElementById('drone-status-text');
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/telemetryHub")
+            .withAutomaticReconnect()
+            .build();
+
+        // ── Estado de drones (batería, modo, GPS) — llega aunque no haya GPS ──────
+        const droneStatusCache = {};
+
         function batteryColor(pct) {
             if (pct < 0)  return 'var(--text-muted)';
             if (pct < 20) return 'var(--accent-danger)';
             if (pct < 50) return '#f59e0b';
             return 'var(--accent-success)';
         }
+        // mode_code según DJI Cloud API M3/M4 series (pilot-to-cloud MQTT)
         function modeName(code) {
-            const m = { 0:'En tierra', 1:'Despegue', 2:'Manual', 3:'Auto despegue',
-                        4:'Waypoints', 5:'Regresando', 6:'Foto/Vídeo', 7:'Hover',
-                        8:'Emergencia', 13:'Aterrizando', 14:'Aterr. forzado', 21:'Misión WP2' };
+            const m = {
+                0:  'En tierra',
+                1:  'Preparando despegue',
+                2:  'Despegue listo',
+                3:  'Vuelo manual',
+                4:  'Despegue automático',
+                5:  '✈ En misión (Wayline)',
+                6:  'Fotografía panorámica',
+                7:  'Seguimiento inteligente',
+                8:  'Evasión ADS-B',
+                9:  '🏠 Regresando (RTH)',
+                10: '⬇ Aterrizando',
+                11: '⚠ Aterrizaje forzado',
+                12: '⚠ Aterrizaje 3 hélices',
+                13: '🔄 Actualizando firmware',
+                14: 'Sin conexión RC',
+                15: 'Evasión obstáculos (APAS)',
+                16: 'Control virtual (DRC)',
+                17: 'Live flight controls',
+                18: 'Fijando RTK en vuelo'
+            };
             return code < 0 ? '—' : (m[code] ?? `Modo ${code}`);
         }
         function batteryHtml(pct, remainTime) {
@@ -2654,7 +2809,7 @@
         // ── Estado de cámara (grabación, zoom, IR) ────────────────────────────────
         const cameraStateCache = {};   // sn → [{cameraIndex, recordingState, zoomFactor, irSwitch, ...}]
 
-        connection.on("UpdateCameraState", function(sn, cameras) {
+        function handleUpdateCameraState(sn, cameras) {
             cameraStateCache[sn] = cameras;
             // Actualizar badge de grabación en la tarjeta del dron si existe
             const row = document.getElementById(`drone-row-${sn}`);
@@ -2670,9 +2825,10 @@
                     row.querySelector('div')?.prepend(badge);
                 }
             } else if (badge) { badge.remove(); }
-        });
+        }
+        connection.on("UpdateCameraState", handleUpdateCameraState);
 
-        connection.on("UpdateDroneStatus", function (sn, battery, remainTime, mode, gpsFixed, gpsSats, attHead, speed, deviceType) {
+        function handleUpdateDroneStatus(sn, battery, remainTime, mode, gpsFixed, gpsSats, attHead, speed, deviceType) {
             // Saltar RC puros (type=144 sin haber sido atribuidos a una aeronave)
             if (deviceType === 144) return;
 
@@ -2704,11 +2860,18 @@
             droneStatusCache[sn] = { battery, remainTime, mode, gpsFixed, gpsSats, attHead, speed, deviceType, isRcRelay };
             droneLastSeen[sn] = Date.now();
 
-            // Badge general (oculto pero mantenido para JS)
             const noDronesAlert = document.getElementById('no-drones-alert');
             if (noDronesAlert) noDronesAlert.remove();
-            droneStatusBadge.className = 'status-badge connected';
-            droneStatusText.textContent = 'Conectado';
+
+            if (!selectedDroneSn) {
+                // Auto-seleccionar el primer dron que envía telemetría
+                selectDrone(sn);
+            } else if (selectedDroneSn === sn) {
+                // Actualizar el badge global con el modo actual del dron seleccionado
+                const snShort = sn.length > 10 ? '…' + sn.slice(-8) : sn;
+                droneStatusBadge.className  = 'status-badge connected';
+                droneStatusText.textContent = `${snShort} · ${modeName(mode)}`;
+            }
 
             // Si ya hay marcador en el mapa, UpdateDronePosition mantiene la tarjeta
             // con datos completos (altitud, rumbo, gimbal). No sobreescribimos para
@@ -2727,7 +2890,10 @@
                 row.className = 'telemetry-card';
                 row.style.cssText += ';margin-left:8px;border-left:2px solid rgba(99,102,241,0.2);';
                 row.style.cursor = 'pointer';
-                row.onclick = () => { if (droneMarkers[sn]) { map.panTo(droneMarkers[sn].getLatLng()); droneMarkers[sn].openPopup(); } };
+                row.onclick = () => {
+                    selectDrone(sn);
+                    if (droneMarkers[sn]) { map.panTo(droneMarkers[sn].getLatLng()); droneMarkers[sn].openPopup(); }
+                };
                 row.onmouseover = function() { this.style.borderColor = getDroneColor(sn).core; };
                 row.onmouseout  = function() { this.style.borderColor = 'rgba(255,255,255,0.04)'; };
                 // Insertar justo después de la tarjeta del gateway si ya existe
@@ -2786,16 +2952,24 @@
 
             addLog(`${sn} → Bat: ${battery<0?'—':battery+'%'} · ${modeName(mode)} · GPS ${gpsFixed>0?'✓':'✗'}(${gpsSats}sat)`, 'telemetry');
             updateRouteDroneSelector();
-        });
+        }
+        connection.on("UpdateDroneStatus", handleUpdateDroneStatus);
 
         // ── Evento de posición GPS ────────────────────────────────────────────────
-        connection.on("UpdateDronePosition", function (sn, latitude, longitude, altitude, gimbalPitch, gimbalRoll, gimbalYaw, heading, zoomFactor, batteryPercent, gpsNumber, sdrFreqBand) {
+        // elevation = AGL (campo "elevation" DJI, relativo al punto de despegue)
+        // altitude  = ASL (campo "height"    DJI, relativo al elipsoide terrestre)
+        function handleUpdateDronePosition(sn, latitude, longitude, altitude, gimbalPitch, gimbalRoll, gimbalYaw, heading, zoomFactor, batteryPercent, gpsNumber, sdrFreqBand, elevation) {
             // Descartar silenciosamente si no hay fix GPS válido
             if (typeof latitude !== 'number' || typeof longitude !== 'number' ||
                 !isFinite(latitude) || !isFinite(longitude) ||
                 (latitude === 0 && longitude === 0)) return;
+            // Fallback: si elevation no llega (firmware antiguo), usar altitude
+            if (elevation === undefined || elevation === null || !isFinite(elevation)) elevation = altitude;
 
             const newPos = new L.LatLng(latitude, longitude);
+
+            // Guardar ambas alturas para que getDisplayAlt() pueda usarlas
+            dronePositionCache[sn] = { altitude, elevation };
 
             // Registrar último avistamiento del dron
             droneLastSeen[sn] = Date.now();
@@ -2821,10 +2995,12 @@
                     Math.abs(newPos.lng - lastPoint.latlng.lng) >= PATH_MIN_DELTA;
 
                 if (movedEnough) {
-                    pathData.points.push({ latlng: newPos, alt: altitude });
+                    // Guardar ambas alturas en el punto para poder recolorear al cambiar altRef
+                    pathData.points.push({ latlng: newPos, alt: altitude, elev: elevation });
 
                     if (lastPoint) {
-                        const segmentColor = getAltitudeColor(altitude);
+                        const altForColor = altRef === 'PILOT' ? elevation : altitude;
+                        const segmentColor = getAltitudeColor(altForColor);
 
                         const glow = L.polyline([lastPoint.latlng, newPos], {
                             color: segmentColor,
@@ -2856,9 +3032,10 @@
             }
             
             // Generar el icono de dron personalizado rotado con rumbo
-            const droneColor = getAltitudeColor(altitude);
+            const altDisplay = altRef === 'PILOT' ? elevation : altitude;
+            const droneColor = getAltitudeColor(altDisplay);
             const customIcon = L.divIcon({
-                html: getDroneMarkerHtml(altitude, droneColor, heading),
+                html: getDroneMarkerHtml(altDisplay, droneColor, heading),
                 className: 'custom-drone-marker',
                 iconSize: [24, 24],
                 iconAnchor: [12, 12]
@@ -2877,7 +3054,7 @@
                         </span>
                     </div>
                     <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 6px 0;"/>
-                    <strong>Altitud:</strong> ${altitude.toFixed(1)}m<br/>
+                    <strong>Alt ASL:</strong> ${altitude.toFixed(1)}m &nbsp;|&nbsp; <strong>Alt AGL:</strong> ${elevation.toFixed(1)}m<br/>
                     <strong>Coordenadas:</strong> ${latitude.toFixed(5)}, ${longitude.toFixed(5)}<br/>
                     <strong>Rumbo de Vuelo:</strong> ${heading.toFixed(0)}°<br/>
                     <strong>Gimbal:</strong> P:${gimbalPitch.toFixed(1)}° R:${gimbalRoll.toFixed(1)}° Y:${gimbalYaw.toFixed(1)}°<br/>
@@ -2894,15 +3071,19 @@
 
                 var marker = L.marker(newPos, { icon: customIcon }).addTo(map)
                     .bindPopup(popupHtml, { maxWidth: 280 });
-                
+
+                // Seleccionar automáticamente el primer dron que aparece;
+                // si ya hay uno seleccionado, solo registrar el nuevo sin cambiar la selección.
+                marker.on('click', function() { selectDrone(sn); });
+
                 droneMarkers[sn] = marker;
-                
-                // Actualizar badge general de telemetría a Conectado
-                droneStatusBadge.className = 'status-badge connected';
-                droneStatusText.textContent = 'En Vuelo';
-                
-                addLog(`Nuevo hardware de telemetría: Dron ${sn}`, 'system');
-                
+
+                if (!selectedDroneSn) {
+                    selectDrone(sn); // selección automática del primer dron
+                }
+
+                addLog(`Nuevo dron en el mapa: ${sn}`, 'system');
+
                 // Centrar mapa en el primer dron detectado
                 map.panTo(newPos);
             } else {
@@ -2975,9 +3156,9 @@
                 droneRow.style.cursor = 'pointer';
                 droneRow.style.transition = 'all 0.2s ease';
                 droneRow.onclick = function() {
-                    map.panTo(droneMarkers[sn].getLatLng());
-                    droneMarkers[sn].openPopup();
-                    addLog(`Cámara enfocada en Dron ${sn}`, 'system');
+                    selectDrone(sn);
+                    if (droneMarkers[sn]) { map.panTo(droneMarkers[sn].getLatLng()); droneMarkers[sn].openPopup(); }
+                    addLog(`Dron seleccionado: ${sn}`, 'system');
                 };
 
                 // Efectos hover visuales
@@ -3052,7 +3233,7 @@
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; font-size: 11px; color: var(--text-muted); gap: 8px;">
                         <div style="display: flex; flex-direction: column; gap: 2px;">
                             <div>
-                                <span>Alt: <strong style="color: var(--text-main);">${altitude.toFixed(1)}m</strong></span>
+                                <span>Alt <span style="font-size:8px;color:var(--accent-cyan);font-weight:700;">${altRefLabel()}</span>: <strong style="color: var(--text-main);">${altDisplay.toFixed(1)}m</strong></span>
                                 <span style="margin-left: 6px;">Rumbo: <strong style="color: var(--text-main);">${heading.toFixed(0)}°</strong></span>
                             </div>
                             <div>
@@ -3075,10 +3256,11 @@
             `;
 
             addLog(`Dron ${sn} → Lat ${latitude.toFixed(4)}, Lon ${longitude.toFixed(4)}, Alt ${altitude.toFixed(1)}m, Rumbo ${heading.toFixed(0)}°, Pitch ${gimbalPitch.toFixed(0)}°`, 'telemetry');
-        });
+        }
+        connection.on("UpdateDronePosition", handleUpdateDronePosition);
 
         // ── Gateway / RC en el mapa (marcador independiente con icono de mando) ──────
-        connection.on("UpdateGatewayPosition", function(gatewaySn, latitude, longitude) {
+        function handleUpdateGatewayPosition(gatewaySn, latitude, longitude) {
             // Lazy init: ignorar hasta que haya fix GPS real (evita crear marcador en (0,0))
             if (typeof latitude !== 'number' || typeof longitude !== 'number' ||
                 !isFinite(latitude) || !isFinite(longitude) ||
@@ -3122,19 +3304,23 @@
                 gatewayMarkers[gatewaySn].setLatLng(pos);
                 gatewayMarkers[gatewaySn].setIcon(rcIcon);
             }
-        });
+        }
+        connection.on("UpdateGatewayPosition", handleUpdateGatewayPosition);
 
         // Eventos de conexión SignalR
         connection.onreconnecting((error) => {
             serverStatusBadge.className = 'status-badge connecting';
             serverStatusText.textContent = 'Reconectando...';
-            addLog("Conexión con SignalR perdida. Intentando reconexión...", 'system');
+            const activeSns = Object.keys(droneLastSeen).filter(sn => Date.now() - droneLastSeen[sn] < 10000);
+            addLog(`SignalR perdido. Drones activos antes de la caída: ${activeSns.length > 0 ? activeSns.join(', ') : 'ninguno'}`, 'system');
         });
 
         connection.onreconnected((connectionId) => {
             serverStatusBadge.className = 'status-badge connected';
             serverStatusText.textContent = 'Conectado';
-            addLog("Conexión restablecida con el servidor SignalR.", 'system');
+            addLog("SignalR reconectado. Restaurando estado del mapa…", 'system');
+            pollGateways();
+            syncActiveDevices(); // restaura marcadores, badges y caché desde REST
         });
 
         connection.onclose((error) => {
@@ -3151,7 +3337,9 @@
                 addLog("Enlazado al servidor SignalR. Listo para recibir telemetría.", 'system');
                 fetchTrajectories(); // Cargar el historial de trayectorias
                 pollGateways();      // Primera carga inmediata de gateways
+                syncActiveDevices(); // Primera carga inmediata de drones
                 setInterval(pollGateways, 5000); // Actualizar cada 5s
+                setInterval(syncActiveDevices, 5000); // Sincronizar drones cada 5s
                 wrapDrcTracking();   // Activar rastreo de frecuencia DRC
             })
             .catch(err => {
@@ -3271,25 +3459,43 @@
             document.getElementById('drc-panel').style.display = 'none';
         }
 
+        // Clave localStorage para la IP preferida del servidor DRC
+        const _DRC_IP_KEY = 'drc_server_ip';
+
         async function drcEnter(gatewaySn, serverIp = null) {
             try {
-                const url = serverIp
-                    ? `/api/drc/enter/${encodeURIComponent(gatewaySn)}?serverIp=${encodeURIComponent(serverIp)}`
+                // Si no se pasa IP explícita, usar la guardada en localStorage (elección anterior)
+                const ipToUse = serverIp ?? localStorage.getItem(_DRC_IP_KEY) ?? null;
+
+                const url = ipToUse
+                    ? `/api/drc/enter/${encodeURIComponent(gatewaySn)}?serverIp=${encodeURIComponent(ipToUse)}`
                     : `/api/drc/enter/${encodeURIComponent(gatewaySn)}`;
 
                 const res  = await fetch(url, { method: 'POST' });
                 const data = await res.json();
 
-                // El servidor tiene varias IPs: mostrar selector al operador
+                // El backend no pudo determinar la IP automáticamente → mostrar selector UNA VEZ
                 if (res.status === 409 && data.error === 'MULTIPLE_IPS') {
+                    // Limpiar caché por si la IP guardada ya no es válida en esta red
+                    localStorage.removeItem(_DRC_IP_KEY);
                     const chosen = await showIpSelectModal(data.ips, gatewaySn);
-                    if (chosen) await drcEnter(gatewaySn, chosen);  // reintentar con IP elegida
+                    if (chosen) {
+                        localStorage.setItem(_DRC_IP_KEY, chosen); // recordar para siempre
+                        await drcEnter(gatewaySn, chosen);
+                    }
                     return;
                 }
 
                 if (!res.ok) {
                     addLog(`DRC ENTER ERROR → ${gatewaySn}: ${data.error || data.message || res.status}`, 'system');
                     return;
+                }
+
+                // Guardar la IP que funcionó (puede venir de la heurística automática del backend)
+                if (data.brokerAddress) {
+                    const ipOnly = data.brokerAddress.split(':')[0];
+                    if (ipOnly && ipOnly !== '127.0.0.1')
+                        localStorage.setItem(_DRC_IP_KEY, ipOnly);
                 }
 
                 addLog(`DRC ENTER → ${gatewaySn}: activo en ${data.brokerAddress}`, 'system');
@@ -3462,78 +3668,119 @@
             };
         })('drc-panel', 'drc-panel-header');
 
-        // Control de tiempo de espera (Watchdog) para detectar desconexión individual de drones
+        // ── Selección de dron activo ─────────────────────────────────────────────
+        // Llama a esta función desde cualquier click (tarjeta HUD o marcador mapa)
+        // para que el badge global refleje el estado de ese dron.
+        function selectDrone(sn) {
+            // Quitar highlight del dron anterior
+            if (selectedDroneSn && selectedDroneSn !== sn) {
+                const prevRow = document.getElementById(`drone-row-${selectedDroneSn}`);
+                if (prevRow) {
+                    prevRow.style.outline = '';
+                    prevRow.style.boxShadow = 'none';
+                }
+                const prevMarker = droneMarkers[selectedDroneSn];
+                if (prevMarker) prevMarker.setZIndexOffset(0);
+            }
+            selectedDroneSn = sn;
+            // Highlight visual en la tarjeta del HUD
+            const row = document.getElementById(`drone-row-${sn}`);
+            if (row) {
+                const color = getDroneColor(sn).core;
+                row.style.outline = `1px solid ${color}`;
+                row.style.boxShadow = `0 0 10px ${getDroneColor(sn).glow}`;
+            }
+            // Subir el marcador del mapa encima de los demás
+            const marker = droneMarkers[sn];
+            if (marker) marker.setZIndexOffset(1000);
+            // Forzar actualización inmediata del badge global
+            const st = droneStatusCache[sn];
+            const snShort = sn.length > 10 ? '…' + sn.slice(-8) : sn;
+            const modeStr  = st ? ` · ${modeName(st.mode)}` : '';
+            droneStatusBadge.className  = 'status-badge connected';
+            droneStatusText.textContent = `${snShort}${modeStr}`;
+        }
+
+        // ── Watchdog: detecta drones que dejaron de transmitir ───────────────────
+        // Usa DRONE_OFFLINE_MS (= DroneOfflineMs del servidor) para que frontend
+        // y REST API coincidan en qué drones están "offline".
         setInterval(function() {
             const now = Date.now();
             let activeCount = 0;
-            
+
             for (const sn in droneLastSeen) {
-                const lastSeen = droneLastSeen[sn];
-                const timePassed = now - lastSeen;
-                const droneRow = document.getElementById(`drone-row-${sn}`);
-                const marker = droneMarkers[sn];
-                
-                if (timePassed > 10000) { // 10 segundos de inactividad
-                    // Cambiar el badge del dron específico a Desconectado (rojo)
+                const timePassed = now - droneLastSeen[sn];
+                const droneRow   = document.getElementById(`drone-row-${sn}`);
+                const marker     = droneMarkers[sn];
+
+                if (timePassed > DRONE_OFFLINE_MS) {
+                    // Badge individual → Inactivo
                     if (droneRow) {
                         const badge = droneRow.querySelector('.status-badge');
                         if (badge && !badge.classList.contains('disconnected')) {
                             badge.className = 'status-badge disconnected';
                             badge.innerHTML = '<span class="status-dot"></span>Inactivo';
-                            addLog(`Dron ${sn} ha dejado de transmitir (Inactivo)`, 'system');
+                            addLog(`Dron ${sn} sin telemetría (>${DRONE_OFFLINE_MS/1000}s)`, 'system');
+                        }
+                        // Deseleccionar si el dron inactivo era el seleccionado
+                        if (selectedDroneSn === sn) {
+                            selectedDroneSn = null;
+                            droneRow.style.outline = '';
                         }
                     }
-                    // Bajar opacidad del marcador en el mapa
-                    if (marker) {
-                        marker.setOpacity(0.4);
-                    }
-                    // Remover polígono de cámara y línea de enlace del mapa
-                    if (droneCameraPolygons[sn]) {
-                        map.removeLayer(droneCameraPolygons[sn]);
-                        delete droneCameraPolygons[sn];
-                    }
-                    if (droneCameraCenterLines[sn]) {
-                        map.removeLayer(droneCameraCenterLines[sn]);
-                        delete droneCameraCenterLines[sn];
-                    }
+                    if (marker) marker.setOpacity(0.4);
+                    if (droneCameraPolygons[sn])    { map.removeLayer(droneCameraPolygons[sn]);    delete droneCameraPolygons[sn]; }
+                    if (droneCameraCenterLines[sn]) { map.removeLayer(droneCameraCenterLines[sn]); delete droneCameraCenterLines[sn]; }
                 } else {
-                    // Cambiar el badge a Activo (verde)
+                    // Badge individual → Activo
                     if (droneRow) {
                         const badge = droneRow.querySelector('.status-badge');
                         if (badge && !badge.classList.contains('connected')) {
                             badge.className = 'status-badge connected';
                             badge.innerHTML = '<span class="status-dot"></span>Activo';
-                            addLog(`Dron ${sn} ha reanudado transmisión (Activo)`, 'system');
+                            addLog(`Dron ${sn} reanudó transmisión`, 'system');
                         }
                     }
-                    // Restaurar opacidad del marcador
-                    if (marker) {
-                        marker.setOpacity(1.0);
-                    }
+                    if (marker) marker.setOpacity(1.0);
                     activeCount++;
                 }
             }
-            
-            // Actualizar contador en el título "Drones Activos"
+
+            // Contador de título
             const countLabel = document.getElementById('drones-active-count');
-            if (countLabel) {
-                countLabel.textContent = activeCount > 0 ? `(${activeCount})` : '';
-            }
-            // Actualizar badge oculto (mantenido para compatibilidad)
-            if (activeCount > 0) {
-                droneStatusBadge.className = 'status-badge connected';
-                droneStatusText.textContent = `${activeCount} activo${activeCount !== 1 ? 's' : ''}`;
+            if (countLabel) countLabel.textContent = activeCount > 0 ? `(${activeCount})` : '';
+
+            // ── Badge global ─────────────────────────────────────────────────
+            // Si hay un dron seleccionado → muestra su estado específico.
+            // Si no → muestra el recuento total de activos.
+            if (selectedDroneSn && droneLastSeen[selectedDroneSn]) {
+                const isActive = (now - droneLastSeen[selectedDroneSn]) <= DRONE_OFFLINE_MS;
+                const snShort  = selectedDroneSn.length > 10 ? '…' + selectedDroneSn.slice(-8) : selectedDroneSn;
+                const st       = droneStatusCache[selectedDroneSn];
+                const modeStr  = st ? ` · ${modeName(st.mode)}` : '';
+                if (isActive) {
+                    droneStatusBadge.className   = 'status-badge connected';
+                    droneStatusText.textContent  = `${snShort}${modeStr}`;
+                } else {
+                    droneStatusBadge.className   = 'status-badge disconnected';
+                    droneStatusText.textContent  = `${snShort} · Inactivo`;
+                    selectedDroneSn = null; // limpiar selección si el dron se fue offline
+                }
             } else {
-                droneStatusBadge.className = 'status-badge disconnected';
-                droneStatusText.textContent = 'Desconectado';
+                if (activeCount > 0) {
+                    droneStatusBadge.className  = 'status-badge connected';
+                    droneStatusText.textContent = `${activeCount} dron${activeCount !== 1 ? 'es' : ''} activo${activeCount !== 1 ? 's' : ''}`;
+                } else {
+                    droneStatusBadge.className  = 'status-badge disconnected';
+                    droneStatusText.textContent = 'Sin drones';
+                }
             }
 
-            // Watchdog para marcadores de gateway/RC
+            // Watchdog para marcadores de gateway/RC (15s)
             for (const gwSn in gatewayLastSeen) {
                 const marker = gatewayMarkers[gwSn];
                 if (!marker) continue;
-                const age = now - gatewayLastSeen[gwSn];
-                marker.setOpacity(age > 15000 ? 0.3 : 1.0);
+                marker.setOpacity((now - gatewayLastSeen[gwSn]) > DRONE_OFFLINE_MS ? 0.3 : 1.0);
             }
         }, 2000);
 
@@ -4826,6 +5073,11 @@
         // ================= PANEL DE VIDEO / KLV (MISB ST 0601) =================
 
         let hlsInstance   = null;
+        let whepPc        = null;   // RTCPeerConnection activo para el stream WebRTC WHEP
+        let whepActive    = false;  // Flag para saber si la reproducción de WHEP está activa
+        let _activeDjiVideoId = ''; // video_id del stream activo (para live_stop_push y switch-lens)
+        let _activeDjiWhepUrl = ''; // WHEP URL del stream activo (para reconectar player tras switch-lens)
+        let _lensStatusTimer  = null; // timer del mensaje de estado de cambio de lente
         // Metadatos KLV activos en tiempo real
         let currentKlvData = {};
         let klvFrames     = [];
@@ -5045,9 +5297,9 @@
             // 4 · Modo del dron (desde caché SignalR)
             if (aircraft && typeof droneStatusCache !== 'undefined' && droneStatusCache[aircraft]) {
                 const mode = droneStatusCache[aircraft].mode;
-                const modeNames = {0:'En tierra',1:'Preparando',2:'Manual',3:'Auto',4:'Misión',5:'RTH',6:'Aterrizando',7:'Hover'};
-                const mName = modeNames[mode] ?? `Modo ${mode}`;
-                const inFlight = mode > 0 && mode !== 6;
+                const mName = modeName(mode); // reutiliza la función global (M3/M4 series)
+                // En vuelo = cualquier modo excepto: En tierra(0), Actualizando(13), Sin conexión RC(14)
+                const inFlight = mode >= 0 && mode !== 0 && mode !== 13 && mode !== 14;
                 row(inFlight ? '✅' : 'ℹ', `Dron: ${mName}${inFlight ? '' : ' (en tierra — streaming puede funcionar de todas formas)'}`,
                     inFlight ? 'var(--accent-success)' : 'var(--text-muted)');
             }
@@ -5091,11 +5343,36 @@
                     srcLbl.textContent = '(dron)';
                     srcLbl.style.color = 'var(--accent-success)';
                 } else {
+                    // camera_list vacío: dejar selector usable con opción manual y avisar al usuario
+                    sel.innerHTML = '<option value="67-0-0" data-video-index="normal-0">67-0-0 (manual)</option>';
                     srcLbl.textContent = '(manual)';
                     srcLbl.style.color = 'var(--text-muted)';
+                    const statusEl = document.getElementById('dji-live-status');
+                    if (statusEl && !statusEl.textContent.includes('cámara')) {
+                        statusEl.textContent = '⚠ El dron no reporta cámaras. Cambia de lente en el RC para refrescar.';
+                        statusEl.style.color = '#f59e0b';
+                    }
                 }
             } catch {
+                sel.innerHTML = '<option value="67-0-0" data-video-index="normal-0">67-0-0 (manual)</option>';
                 srcLbl.textContent = '(manual)';
+            }
+        }
+
+        // Muestra u oculta los controles exclusivos de Dock (selector de cámara + barra de lentes)
+        // según el tipo del gateway seleccionado. Con Mando/RC, DJI Pilot 2 no acepta estos comandos.
+        function updateDockOnlyControls(gatewaySelect) {
+            const selOpt = gatewaySelect?.selectedOptions[0];
+            const gwType = (selOpt?.dataset?.deviceType || '').toLowerCase();
+            const isDock = gwType.includes('dock');
+
+            const camPanel = document.getElementById('dji-camera-select-panel');
+            const lensBar  = document.getElementById('dji-lens-bar');
+
+            if (camPanel) camPanel.style.display = isDock ? 'flex' : 'none';
+            if (lensBar && lensBar.style.display !== 'none') {
+                // La barra de lentes solo permanece visible si ya estaba visible Y es Dock
+                if (!isDock) lensBar.style.display = 'none';
             }
         }
 
@@ -5121,8 +5398,9 @@
                     gateways.forEach(gw => {
                         // Grupo: una opción seleccionable para el gateway
                         const gwOpt = document.createElement('option');
-                        gwOpt.value    = gw.gatewaySn;
-                        gwOpt.disabled = !gw.isOnline;
+                        gwOpt.value              = gw.gatewaySn;
+                        gwOpt.disabled           = !gw.isOnline;
+                        gwOpt.dataset.deviceType = gw.deviceType || '';
                         const gwBadge  = gw.isOnline ? '🟢' : '🔴';
                         gwOpt.textContent = `${gwBadge} ${gw.gatewaySn} · ${gw.deviceType}`;
                         sel.appendChild(gwOpt);
@@ -5147,10 +5425,12 @@
 
                     autoSelectRtmpIpForGateway(sel.value);
                     checkStreamReadiness(sel.value);
+                    updateDockOnlyControls(sel);
 
                     sel.onchange = () => {
                         autoSelectRtmpIpForGateway(sel.value);
                         checkStreamReadiness(sel.value);
+                        updateDockOnlyControls(sel);
                     };
                 }
             } catch {
@@ -5171,6 +5451,7 @@
             const localIp    = document.getElementById('dji-live-ip-select').value.trim() || null;
             const statusEl   = document.getElementById('dji-live-status');
             const ipEl       = document.getElementById('dji-live-ip');
+            const useWebRtc   = document.getElementById('dji-live-protocol').value === 'webrtc';
 
             if (!sn) {
                 statusEl.textContent = '✗ Selecciona un gateway (mando o dock) de la lista.';
@@ -5179,7 +5460,7 @@
                 return;
             }
 
-            statusEl.textContent = '⟳ Arrancando receptor RTMP y enviando live_start_push...';
+            statusEl.textContent = '⟳ Arrancando MediaMTX y enviando live_start_push...';
             statusEl.style.color = 'var(--accent-indigo)';
             ipEl.textContent = '';
 
@@ -5187,7 +5468,7 @@
                 const res  = await fetch('/api/stream/start-live', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ gatewaySn: sn, videoId: null, quality, cameraType, videoIndex, localIp })
+                    body: JSON.stringify({ gatewaySn: sn, videoId: null, quality, cameraType, videoIndex, useWebRtc })
                 });
                 
                 let data = null;
@@ -5205,39 +5486,64 @@
                     return;
                 }
 
-                _activeDjiGatewaySn = sn;   // guardar SN para el botón PARAR
+                _activeDjiGatewaySn = sn;                    // para el botón PARAR
+                _activeDjiVideoId   = data.videoId  || '';  // para live_stop_push y switch-lens
+                _activeDjiWhepUrl   = data.whepUrl  || '';  // para reconectar player tras switch-lens
 
-                const aircraftInfo = data.aircraftSn && data.aircraftSn !== sn
-                    ? ` | aeronave: ${data.aircraftSn}` : '';
-                statusEl.textContent = `⟳ ffmpeg escuchando en :${data.rtmpPort} · Esperando ACK de DJI Pilot 2...`;
+                const modeLabel  = `${data.useWebRtc ? 'WebRTC' : 'RTMP'} → ${data.whepUrl ?? '...'}`;
+                const serverInfo = `${data.localIp} | ${modeLabel} | video_id: ${data.videoId}`;
+                const waitMsg    = '⟳ MediaMTX listo · Esperando ACK de DJI Pilot 2...';
+
+                statusEl.textContent = waitMsg;
                 statusEl.style.color = 'var(--accent-cyan)';
-                ipEl.textContent = `Servidor: ${data.localIp}:${data.rtmpPort} | video_id: ${data.videoId}${aircraftInfo}`;
+                ipEl.textContent = serverInfo;
 
-                document.getElementById('btn-dji-live-stop').style.display = '';
-                document.getElementById('btn-dji-live-start').style.display = 'none';
-
-                addLog(`live_start_push → ${sn} | video_id: ${data.videoId} | RTMP: ${data.rtmpUrl} | puerto: ${data.rtmpPort}`, 'system');
-                showStreamDiag(sn);
-
-                // Mostrar barra de lentes y resetear estilos
-                const lensBar = document.getElementById('dji-lens-bar');
-                if (lensBar) {
-                    document.getElementById('lens-btn-wide').style.borderColor = 'var(--accent-cyan)';
-                    document.getElementById('lens-btn-wide').style.background = 'rgba(6,182,212,0.15)';
-                    document.getElementById('lens-btn-wide').style.color = 'var(--accent-cyan)';
-                    ['zoom', 'thermal'].forEach(t => {
-                        const btn = document.getElementById(`lens-btn-${t}`);
-                        if (btn) {
-                            btn.style.borderColor = 'var(--panel-border)';
-                            btn.style.background = 'rgba(255,255,255,0.04)';
-                            btn.style.color = 'var(--text-main)';
-                        }
-                    });
-                    lensBar.style.display = 'flex';
+                const btnStart = document.getElementById('btn-dji-live-start');
+                if (btnStart) {
+                    btnStart.disabled = true;
+                    btnStart.innerHTML = `⟳ Conectando cámara del dron...`;
+                    btnStart.style.display = '';
+                }
+                const btnStop = document.getElementById('btn-dji-live-stop');
+                if (btnStop) {
+                    btnStop.style.display = '';
                 }
 
-                // Reproducir el HLS específico de este dron
-                pollServicesReply(sn, data.hlsUrl);
+                addLog(`live_start_push → ${sn} | video_id: ${data.videoId} | url: ${data.streamUrl}`, 'system');
+
+                // Mostrar barra de lentes solo si el gateway es un Dock
+                // (con Mando/RC, DJI Pilot 2 no acepta live_lens_change ni switch-lens desde la nube)
+                const lensBar = document.getElementById('dji-lens-bar');
+                if (lensBar) {
+                    const snSel      = document.getElementById('dji-live-sn');
+                    const selOpt     = snSel?.selectedOptions[0];
+                    const gwType     = (selOpt?.dataset?.deviceType || '').toLowerCase();
+                    const isDock     = gwType.includes('dock');
+
+                    if (isDock) {
+                        document.getElementById('lens-btn-wide').style.borderColor = 'var(--accent-cyan)';
+                        document.getElementById('lens-btn-wide').style.background = 'rgba(6,182,212,0.15)';
+                        document.getElementById('lens-btn-wide').style.color = 'var(--accent-cyan)';
+                        ['zoom', 'thermal'].forEach(t => {
+                            const btn = document.getElementById(`lens-btn-${t}`);
+                            if (btn) {
+                                btn.style.borderColor = 'var(--panel-border)';
+                                btn.style.background = 'rgba(255,255,255,0.04)';
+                                btn.style.color = 'var(--text-main)';
+                            }
+                        });
+                        lensBar.style.display = 'flex';
+                    } else {
+                        lensBar.style.display = 'none';
+                    }
+                }
+
+                // Iniciar la pestaña de directo y reproducir con delay
+                switchVTab('live');
+                playWhep(data.whepUrl);
+
+                // Esperar ACK y monitorear estado en segundo plano
+                pollServicesReply(sn, data.hlsUrl ?? null, 10000, null);
             } catch (err) {
                 console.error("Error en startDjiLive:", err);
                 statusEl.textContent = `✗ Error: ${err.message || 'Error de red'}`;
@@ -5245,179 +5551,175 @@
             }
         }
 
+        // ─── Cambio de calidad en caliente (live_set_quality) ────────────────────
+        async function onQualityChange(selectEl) {
+            const sn = _activeDjiGatewaySn;
+            // Si no hay stream activo solo se cambia el valor del selector (se usará en el próximo start)
+            if (!sn) return;
+
+            const quality    = parseInt(selectEl.value, 10);
+            const qualLabels = ['Adaptativa', 'Fluida (540p)', 'SD (720p 1M)', 'HD (720p 1.5M)', 'UHD (1080p 3M)'];
+            const label      = qualLabels[quality] ?? quality;
+            const statusEl   = document.getElementById('dji-live-status');
+
+            if (statusEl) { statusEl.textContent = `⟳ Aplicando calidad: ${label}...`; statusEl.style.color = 'var(--accent-cyan)'; }
+            selectEl.disabled = true;
+
+            // Escuchar ACK del dron vía SignalR (timeout 6 s)
+            let ackResolve;
+            const ackPromise = new Promise(r => { ackResolve = r; });
+            const ackHandler = (snAck, res) => { if (snAck === sn) { connection.off('SetQualityAck', ackHandler); ackResolve({ result: res }); } };
+            connection.on('SetQualityAck', ackHandler);
+            const ackTimeout = setTimeout(() => { connection.off('SetQualityAck', ackHandler); ackResolve({ result: null, timeout: true }); }, 6000);
+
+            try {
+                const res  = await fetch('/api/stream/set-quality', {
+                    method:  'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ gatewaySn: sn, videoQuality: quality })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    clearTimeout(ackTimeout); connection.off('SetQualityAck', ackHandler);
+                    if (statusEl) { statusEl.textContent = `✗ Error: ${data.error}`; statusEl.style.color = 'var(--accent-danger)'; }
+                    addLog(`live_set_quality error: ${data.error}`, 'system');
+                    return;
+                }
+
+                addLog(`live_set_quality enviado → ${label} | esperando ACK...`, 'system');
+                const ack = await ackPromise;
+                clearTimeout(ackTimeout);
+
+                if (ack.timeout) {
+                    if (statusEl) { statusEl.textContent = `⚠ Sin respuesta del dron (timeout)`; statusEl.style.color = '#f59e0b'; }
+                    addLog(`live_set_quality: sin ACK en 6s`, 'system');
+                } else if (ack.result === 0) {
+                    if (statusEl) { statusEl.textContent = `✓ Calidad aplicada: ${label}`; statusEl.style.color = 'var(--accent-success)';
+                        setTimeout(() => { if (statusEl.textContent.startsWith('✓ Calidad')) statusEl.textContent = `● Stream activo`; }, 3000); }
+                    addLog(`✓ Calidad cambiada → ${label} (result=0)`, 'system');
+                } else {
+                    if (statusEl) { statusEl.textContent = `✗ Dron rechazó calidad (result=${ack.result})`; statusEl.style.color = 'var(--accent-danger)'; }
+                    addLog(`✗ live_set_quality rechazado: result=${ack.result}`, 'system');
+                }
+            } catch (err) {
+                clearTimeout(ackTimeout); connection.off('SetQualityAck', ackHandler);
+                if (statusEl) { statusEl.textContent = `✗ Error de red`; statusEl.style.color = 'var(--accent-danger)'; }
+                addLog(`live_set_quality error de red: ${err.message}`, 'system');
+            } finally {
+                selectEl.disabled = false;
+            }
+        }
+
         async function changeDjiLens(lensType) {
             const sn = _activeDjiGatewaySn;
             if (!sn) return;
-            
-            const camSel = document.getElementById('dji-live-camera');
-            const cameraType = camSel.value;
-            
-            // Actualizar botones en la UI
+
+            const camSel   = document.getElementById('dji-live-camera');
+            const statusEl = document.getElementById('dji-live-status');
+            const labels   = { wide: 'Angular', zoom: 'Zoom', thermal: 'Térmica' };
+            const label    = labels[lensType] || lensType;
+
+            // ── Construir video_id destino desde el video_id activo + video_index del tipo de lente
+            // Formato: {aircraftSn}/{cameraType}/{videoIndex}
+            const lensToKeyword = { wide: 'wide', zoom: 'zoom', thermal: 'infra', normal: 'normal' };
+            const keyword    = lensToKeyword[lensType];
+            const idParts    = _activeDjiVideoId.split('/');
+            const aircraftSn = idParts[0] || '';
+            const cameraType = idParts[1] || (camSel ? camSel.value : '67-0-0');
+
+            let targetVideoIndex = null;
+            if (keyword && camSel) {
+                for (const opt of camSel.options) {
+                    if (opt.dataset.videoIndex?.includes(keyword)) { targetVideoIndex = opt.dataset.videoIndex; break; }
+                }
+            }
+            const targetVideoId = (aircraftSn && cameraType && targetVideoIndex)
+                ? `${aircraftSn}/${cameraType}/${targetVideoIndex}`
+                : _activeDjiVideoId;
+
+            // ── Cancelar timer de estado anterior
+            if (_lensStatusTimer) { clearTimeout(_lensStatusTimer); _lensStatusTimer = null; }
+
+            // ── Deshabilitar botones durante el cambio
             ['wide', 'zoom', 'thermal'].forEach(t => {
                 const btn = document.getElementById(`lens-btn-${t}`);
-                if (btn) {
-                    if (t === lensType) {
-                        btn.style.borderColor = 'var(--accent-cyan)';
-                        btn.style.background = 'rgba(6,182,212,0.15)';
-                        btn.style.color = 'var(--accent-cyan)';
-                    } else {
-                        btn.style.borderColor = 'var(--panel-border)';
-                        btn.style.background = 'rgba(255,255,255,0.04)';
-                        btn.style.color = 'var(--text-main)';
-                    }
+                if (btn) btn.disabled = true;
+            });
+
+            // ── Resaltar botón destino
+            ['wide', 'zoom', 'thermal'].forEach(t => {
+                const btn = document.getElementById(`lens-btn-${t}`);
+                if (!btn) return;
+                if (t === lensType) {
+                    btn.style.borderColor = 'var(--accent-cyan)';
+                    btn.style.background  = 'rgba(6,182,212,0.15)';
+                    btn.style.color       = 'var(--accent-cyan)';
+                } else {
+                    btn.style.borderColor = 'var(--panel-border)';
+                    btn.style.background  = 'rgba(255,255,255,0.04)';
+                    btn.style.color       = 'var(--text-main)';
                 }
             });
-            
-            addLog(`Enviando cambio de lente → ${lensType} (${sn})`, 'system');
-            
+
+            if (statusEl) { statusEl.textContent = `⟳ Cambiando a lente ${label}...`; statusEl.style.color = 'var(--accent-cyan)'; }
+            addLog(`switch-lens → ${label} | video_id destino: ${targetVideoId}`, 'system');
+
             try {
-                const res = await fetch('/api/stream/change-lens', {
+                // ── stop + start con el nuevo video_id (garantizado para todos los firmwares)
+                const res = await fetch('/api/stream/switch-lens', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ gatewaySn: sn, lensType, cameraType })
+                    body: JSON.stringify({ gatewaySn: sn, targetVideoId })
                 });
                 const data = await res.json();
+
                 if (!res.ok) {
-                    addLog(`Error al cambiar lente: ${data.error || 'error desconocido'}`, 'system');
-                } else {
-                    addLog(`Lente cambiada con éxito a: ${lensType}`, 'system');
+                    if (statusEl) { statusEl.textContent = `✗ Error: ${data.error || 'error desconocido'}`; statusEl.style.color = 'var(--accent-danger)'; }
+                    addLog(`Error en switch-lens: ${data.error}`, 'system');
+                    return;
                 }
+
+                // Actualizar estado local
+                _activeDjiVideoId = data.videoId || targetVideoId;
+
+                // ── Reconectar el player (el dron necesita ~2s para reconectar el stream)
+                if (statusEl) { statusEl.textContent = `⟳ Dron reconectando cámara ${label}...`; statusEl.style.color = 'var(--accent-cyan)'; }
+                addLog(`MQTT enviado (stop+start). Esperando que el dron conecte la nueva cámara...`, 'system');
+
+                if (data.useWebRtc && _activeDjiWhepUrl) {
+                    // Para WebRTC: cerrar conexión actual y reconectar con el nuevo stream
+                    stopWhep();
+                    await new Promise(r => setTimeout(r, 2000));
+                    await playWhep(_activeDjiWhepUrl);
+                }
+                // Para RTMP/HLS: MediaMTX recibe el nuevo stream automáticamente; no hay que hacer nada
+
+                if (statusEl) {
+                    statusEl.textContent = `✓ Lente cambiada → ${label}`;
+                    statusEl.style.color = 'var(--accent-success)';
+                    _lensStatusTimer = setTimeout(() => {
+                        _lensStatusTimer = null;
+                        if (statusEl.textContent.startsWith('✓ Lente cambiada')) {
+                            statusEl.textContent = `● Stream activo | Lente: ${label}`;
+                        }
+                    }, 3000);
+                }
+                addLog(`✓ switch-lens completado → ${label}`, 'system');
+
             } catch (err) {
-                addLog(`Error de red al cambiar lente: ${err.message}`, 'system');
+                if (statusEl) { statusEl.textContent = `✗ Error de red al cambiar lente`; statusEl.style.color = 'var(--accent-danger)'; }
+                addLog(`Error de red en switch-lens: ${err.message}`, 'system');
+            } finally {
+                ['wide', 'zoom', 'thermal'].forEach(t => {
+                    const btn = document.getElementById(`lens-btn-${t}`);
+                    if (btn) btn.disabled = false;
+                });
             }
         }
 
-        // ── Diagnóstico de stream ─────────────────────────────────────────────
-
-        function showStreamDiag(gatewaySn) {
-            _diagGatewaySn = gatewaySn;
-            const panel = document.getElementById('stream-diag-panel');
-            panel.style.display = 'flex';
-            runStreamDiag();
-        }
-
-        async function runStreamDiag() {
-            // 1 · Verificar el puerto real del stream activo para este gateway
-            try {
-                const snParam = _diagGatewaySn ? `/${encodeURIComponent(_diagGatewaySn)}` : '';
-                const r = await fetch(`/api/stream/port-check${snParam}`, { cache: 'no-store' });
-                const d = await r.json();
-                const portEl = document.getElementById('diag-port');
-                if (d.portBound) {
-                    portEl.innerHTML = `✅ Puerto ${d.port}: ffmpeg escuchando`;
-                    portEl.style.color = 'var(--accent-success)';
-                    document.getElementById('btn-open-fw').style.display = 'none';
-                } else {
-                    portEl.innerHTML = `✗ Puerto ${d.port}: no enlazado (ffmpeg no arrancó?)`;
-                    portEl.style.color = 'var(--accent-danger)';
-                }
-            } catch { document.getElementById('diag-port').textContent = '— Puerto: error de consulta'; }
-
-            // 2 · Topics suscritos por el RC (diagnóstico subscripción)
-            try {
-                const r    = await fetch('/api/admin/mqtt-subs', { cache: 'no-store' });
-                const subs = await r.json();
-                const subsEl = document.getElementById('diag-subs');
-                const relevant = subs.filter(l => l.message && l.message.includes(_diagGatewaySn));
-                if (relevant.length) {
-                    subsEl.textContent = relevant.map(l => {
-                        const t = new Date(l.timestamp).toTimeString().slice(0,8);
-                        return `[${t}] ${l.message}`;
-                    }).join('\n');
-                    // Verificar si se suscribió al topic services
-                    const hasSvc = relevant.some(l => l.message.includes('/services'));
-                    subsEl.style.color = hasSvc ? 'var(--accent-success)' : '#f59e0b';
-                    if (!hasSvc) subsEl.textContent += '\n⚠ NO suscrito a /services — no recibirá live_start_push';
-                } else {
-                    subsEl.textContent = '— Reinicia servidor y reconecta el RC para ver sus topics';
-                    subsEl.style.color = 'var(--text-muted)';
-                }
-            } catch { document.getElementById('diag-subs').textContent = '— Error'; }
-
-            // 3 · Códigos HMS activos del dron
-            const aircraftSnDiag = document.getElementById('dji-live-ip').textContent.match(/aeronave:\s*(\S+)/)?.[1]
-                                || _diagGatewaySn;
-            try {
-                const r    = await fetch(`/api/admin/hms/${aircraftSnDiag}`, { cache: 'no-store' });
-                const hmsEl = document.getElementById('diag-hms');
-                if (r.ok) {
-                    const codes = await r.json();
-                    if (codes.length) {
-                        const HMS_LEVEL = ['ℹ Aviso','⚠ Advertencia','🔴 Error'];
-                        hmsEl.textContent = codes.map(c =>
-                            `${HMS_LEVEL[c.level]||'?'} | comp:${c.componentIndex} | code:0x${c.code.toString(16).toUpperCase()}`
-                        ).join('\n');
-                        hmsEl.style.color = codes.some(c => c.level >= 2) ? 'var(--accent-danger)' : '#f59e0b';
-                    } else {
-                        hmsEl.textContent = '✅ Sin códigos HMS activos';
-                        hmsEl.style.color = 'var(--accent-success)';
-                    }
-                } else {
-                    hmsEl.textContent = '— Esperando datos HMS...';
-                    hmsEl.style.color = 'var(--text-muted)';
-                }
-            } catch { document.getElementById('diag-hms').textContent = '— Error al cargar HMS'; }
-
-            // 4 · Últimos eventos MQTT relacionados con el stream
-            try {
-                const r    = await fetch('/api/admin/logs', { cache: 'no-store' });
-                const logs = await r.json();
-                const relevant = logs.filter(l =>
-                    l.source === 'LiveStream' || l.source === 'MQTT-Sub' ||
-                    (l.message && (l.message.includes('services_reply') || l.message.includes(_diagGatewaySn)))
-                ).slice(-6);
-                const mqttEl = document.getElementById('diag-mqtt');
-                if (relevant.length) {
-                    mqttEl.textContent = relevant.map(l => {
-                        const t = new Date(l.timestamp).toTimeString().slice(0,8);
-                        return `[${t}] ${l.source}: ${l.message}`;
-                    }).join('\n');
-                } else {
-                    mqttEl.textContent = '— Sin eventos recientes';
-                }
-            } catch { document.getElementById('diag-mqtt').textContent = '— Error al cargar logs'; }
-
-            // 5 · Firewall: mostrar botón si el puerto no está enlazado
-            try {
-                const r = await fetch('/api/stream/port-check', { cache: 'no-store' });
-                const d = await r.json();
-                const fwEl = document.getElementById('diag-fw');
-                if (!d.portBound && !d.ffmpegRunning) {
-                    fwEl.innerHTML = '⚠ ffmpeg no está corriendo';
-                    fwEl.style.color = '#f59e0b';
-                } else if (d.portBound) {
-                    // Puerto enlazado pero dron no conecta → posible firewall
-                    fwEl.innerHTML = '⚠ Puerto enlazado pero dron no conecta — puede ser el Firewall de Windows';
-                    fwEl.style.color = '#f59e0b';
-                    document.getElementById('btn-open-fw').style.display = '';
-                } else {
-                    fwEl.innerHTML = '— Firewall: sin datos';
-                    fwEl.style.color = 'var(--text-muted)';
-                }
-            } catch { /* ignorar */ }
-        }
-
-        async function openFirewallPort() {
-            const btn = document.getElementById('btn-open-fw');
-            btn.textContent = '⟳ Abriendo...'; btn.disabled = true;
-            try {
-                const r = await fetch('/api/stream/open-firewall', { method: 'POST' });
-                const d = await r.json();
-                if (d.success) {
-                    btn.textContent = '✅ Puerto 1935 abierto en Firewall';
-                    btn.style.color = 'var(--accent-success)';
-                    document.getElementById('diag-fw').textContent = '✅ Regla de firewall añadida — vuelve a intentar el stream';
-                    document.getElementById('diag-fw').style.color = 'var(--accent-success)';
-                } else {
-                    btn.textContent = '✗ ' + (d.output || 'Error al abrir firewall');
-                    btn.disabled = false;
-                }
-            } catch {
-                btn.textContent = '✗ Error de red'; btn.disabled = false;
-            }
-        }
-
-        async function pollServicesReply(gatewaySn, hlsUrl, timeoutMs = 10000) {
+        // whepUrl: si está presente, se usa playWhep() en lugar de waitForHlsDji() al recibir ACK
+        async function pollServicesReply(gatewaySn, hlsUrl, timeoutMs = 10000, whepUrl = null) {
             const statusEl = document.getElementById('dji-live-status');
             const start    = Date.now();
 
@@ -5429,7 +5731,7 @@
             };
             connection.on('StreamAck', ackHandler);
 
-            // Polling HTTP como fallback (pasa 'since' para ignorar respuestas antiguas)
+            // Polling HTTP como fallback
             let pollingDone = false;
             const pollPromise = (async () => {
                 while (!pollingDone && Date.now() - start < timeoutMs) {
@@ -5443,25 +5745,31 @@
                 return null;
             })();
 
-            // Esperar lo que llegue primero: SignalR push o polling
             const ack = await Promise.race([signalRPromise, pollPromise]);
             pollingDone = true;
             connection.off('StreamAck', ackHandler);
 
+            const startPlayback = () => {
+                if (whepUrl) {
+                    switchVTab('live');
+                    playWhep(whepUrl);
+                }
+            };
+
             if (ack?.result === 0) {
-                statusEl.textContent = '✓ DJI Pilot 2 ACK — esperando push de vídeo...';
+                statusEl.textContent = '✓ DJI Pilot 2 ACK';
                 statusEl.style.color = 'var(--accent-success)';
-                waitForHlsDji(hlsUrl);
+                startPlayback();
             } else if (ack && ack.result !== undefined && ack.result !== 0) {
                 statusEl.textContent = `✗ DJI Pilot 2 rechazó el comando (result=${ack.result}). Prueba otra cámara.`;
                 statusEl.style.color = 'var(--accent-danger)';
                 document.getElementById('btn-dji-live-stop').style.display = 'none';
                 document.getElementById('btn-dji-live-start').style.display = '';
+                stopWhep();
             } else {
-                // Sin ACK en timeout: continuar igualmente (algunos FW no responden al ACK)
-                statusEl.textContent = '⟳ Sin ACK de DJI Pilot 2 — esperando push de vídeo...';
-                statusEl.style.color = 'var(--accent-cyan)';
-                waitForHlsDji(hlsUrl);
+                statusEl.textContent = '✓ Conectado';
+                statusEl.style.color = 'var(--accent-success)';
+                startPlayback();
             }
         }
 
@@ -5567,11 +5875,14 @@
                     addLog(`Error al detener stream DJI: ${e.message}`, 'system');
                 }
                 _activeDjiGatewaySn = '';
+                _activeDjiVideoId   = '';
+                _activeDjiWhepUrl   = '';
             } else {
                 // Parar relay legacy (URL manual)
                 await fetch('/api/stream/stop', { method: 'POST' });
             }
 
+            stopWhep();   // cierra RTCPeerConnection WebRTC si estaba activo
             stopHls();
             const video = document.getElementById('klv-video');
             video.pause(); video.src = '';
@@ -5597,6 +5908,140 @@
                 djiStatus.style.color = 'var(--text-muted)';
             }
             addLog('Stream detenido.', 'system');
+        }
+
+        // ─── Reproductor WebRTC WHEP ──────────────────────────────────────────
+        async function playWhep(whepUrl) {
+            stopWhep();
+            stopHls();
+            
+            whepActive = true;
+            
+            const video = document.getElementById('klv-video');
+            const ph    = document.getElementById('video-placeholder');
+            ph.style.display = 'none';
+
+            let attempts = 0;
+            const maxAttempts = 8;
+            let success = false;
+
+            while (attempts < maxAttempts && !success && whepActive) {
+                attempts++;
+
+                const pc = new RTCPeerConnection({ iceServers: [] });
+                whepPc = pc;
+
+                pc.ontrack = (e) => {
+                    video.srcObject = e.streams[0];
+                    video.play().catch(() => {});
+                };
+
+                pc.oniceconnectionstatechange = () => {
+                    if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+                        addLog(`WebRTC: conexión perdida (${pc.iceConnectionState})`, 'system');
+                        ph.style.display = 'flex';
+                    }
+                };
+
+                pc.addTransceiver('video', { direction: 'recvonly' });
+                pc.addTransceiver('audio', { direction: 'recvonly' });
+
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+
+                    const res = await fetch(whepUrl, {
+                        method:  'POST',
+                        headers: { 'Content-Type': 'application/sdp' },
+                        body:    offer.sdp
+                    });
+                    
+                    if (res.status === 404) {
+                        throw new Error("404");
+                    }
+                    if (!res.ok) {
+                        throw new Error(`WHEP ${res.status}: ${await res.text()}`);
+                    }
+
+                    if (!whepActive) {
+                        pc.close();
+                        return;
+                    }
+
+                    const answerSdp = await res.text();
+                    await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerSdp }));
+                    addLog(`⚡ WebRTC WHEP conectado → ${whepUrl}`, 'system');
+                    success = true;
+
+                    // Restaurar botón Iniciar y ocultarlo
+                    const btnStart = document.getElementById('btn-dji-live-start');
+                    if (btnStart) {
+                        btnStart.disabled = false;
+                        btnStart.innerHTML = `🔴 Iniciar Stream DJI`;
+                        btnStart.style.display = 'none';
+                    }
+                    // Mostrar botón Parar
+                    const btnStop = document.getElementById('btn-dji-live-stop');
+                    if (btnStop) {
+                        btnStop.style.display = '';
+                    }
+                } catch (err) {
+                    pc.close();
+                    if (whepPc === pc) {
+                        whepPc = null;
+                    }
+
+                    if (!whepActive) {
+                        return;
+                    }
+
+                    if (err.message === "404" && attempts < maxAttempts) {
+                        const statusEl = document.getElementById('dji-live-status');
+                        if (statusEl) {
+                            statusEl.textContent = `⟳ Conectando cámara del dron...`;
+                            statusEl.style.color = 'var(--accent-cyan)';
+                        }
+                        
+                        // Actualizar texto del botón Start
+                        const btnStart = document.getElementById('btn-dji-live-start');
+                        if (btnStart) {
+                            btnStart.innerHTML = `⟳ Conectando cámara del dron...`;
+                        }
+
+                        addLog(`⟳ WHEP: El stream del dron aún no está listo (404). Reintentando en 2s... (Intento ${attempts}/${maxAttempts})`, 'system');
+                        await new Promise(r => setTimeout(r, 2000));
+                    } else {
+                        // Error definitivo
+                        addLog(`✗ WHEP error: ${err.message}`, 'system');
+                        const statusEl = document.getElementById('dji-live-status');
+                        if (statusEl) {
+                            statusEl.textContent = `✗ El dron no ha podido enviar el vídeo`;
+                            statusEl.style.color = 'var(--accent-danger)';
+                        }
+                        
+                        const btnStart = document.getElementById('btn-dji-live-start');
+                        if (btnStart) {
+                            btnStart.disabled = false;
+                            btnStart.innerHTML = `🔴 Iniciar Stream DJI`;
+                            btnStart.style.display = '';
+                        }
+                        const btnStop = document.getElementById('btn-dji-live-stop');
+                        if (btnStop) {
+                            btnStop.style.display = 'none';
+                        }
+                        ph.style.display = 'flex';
+                        stopWhep();
+                        return;
+                    }
+                }
+            }
+        }
+
+        function stopWhep() {
+            whepActive = false;
+            if (whepPc) { whepPc.close(); whepPc = null; }
+            const video = document.getElementById('klv-video');
+            if (video && video.srcObject) { video.srcObject = null; }
         }
 
         function playHls(url) {
@@ -5697,226 +6142,4 @@
             loadVideoList();
         }
 
-        // ─── Tab "Archivo KLV" ────────────────────────────────────────────────
-
-        async function loadKlvList() {
-            const res   = await fetch('/api/media/klv');
-            const files = await res.json();
-            const list  = document.getElementById('klv-file-list');
-            if (!files.length) {
-                list.innerHTML = '<div style="font-size:11px; color:var(--text-muted); text-align:center; padding:6px;">Sin archivos KLV.</div>';
-                return;
-            }
-            list.innerHTML = files.map(f => `
-                <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(10,11,16,0.5); border:1px solid rgba(255,255,255,0.04); border-radius:8px; padding:5px 10px;">
-                    <span style="font-size:11px; font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;" title="${f.name}">${f.name}</span>
-                    <div style="display:flex; gap:6px; flex-shrink:0;">
-                        <span style="font-size:9px; color:var(--text-muted); align-self:center;">${formatBytes(f.size)}</span>
-                        <button onclick="loadKlvFrames('${f.name}')" style="background:rgba(168,85,247,0.25); border:1px solid rgba(168,85,247,0.5); color:#d8b4fe; border-radius:6px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer;">Ver</button>
-                        <button onclick="deleteKlv('${f.name}')" style="background:none; border:1px solid rgba(239,68,68,0.4); color:#f87171; border-radius:6px; padding:2px 7px; font-size:10px; cursor:pointer;">✕</button>
-                    </div>
-                </div>`).join('');
-        }
-
-        async function uploadKlvFile(input) {
-            const file = input.files[0]; if (!file) return;
-            const status = document.getElementById('klv-upload-status');
-            status.textContent = '↑ Subiendo...';
-            const fd = new FormData(); fd.append('file', file);
-            try {
-                const res = await fetch('/api/media/upload-klv', { method: 'POST', body: fd });
-                const d   = await res.json();
-                if (!res.ok) { status.textContent = `✗ ${d.error}`; return; }
-                status.textContent = `✓ ${d.frameCount} frames`;
-                addLog(`KLV subido: ${d.name} (${d.frameCount} frames)`, 'system');
-                await loadKlvList();
-            } catch { status.textContent = '✗ Error de red'; }
-            input.value = '';
-        }
-
-        async function loadKlvFrames(name) {
-            const status = document.getElementById('klv-upload-status');
-            status.textContent = '⟳ Cargando...';
-            try {
-                const res  = await fetch(`/api/media/klv/${encodeURIComponent(name)}?pageSize=5000`);
-                const data = await res.json();
-                klvFrames    = data.frames;
-                klvFrameIndex = 0;
-                const nav    = document.getElementById('klv-frame-nav');
-                const slider = document.getElementById('klv-frame-slider');
-                nav.style.display    = klvFrames.length > 0 ? 'flex' : 'none';
-                slider.max   = Math.max(0, klvFrames.length - 1);
-                slider.value = 0;
-                document.getElementById('klv-source-badge').textContent = `— ${name}`;
-                status.textContent = `✓ ${data.total} frames`;
-                addLog(`KLV cargado: ${name} (${data.total} frames)`, 'system');
-                if (klvFrames.length > 0) goToKlvFrame(0);
-            } catch { status.textContent = '✗ Error de red'; }
-        }
-
-        async function tryAutoLoadKlv(klvName) {
-            const res   = await fetch('/api/media/klv');
-            const files = await res.json();
-            if (files.some(f => f.name === klvName)) {
-                addLog(`KLV asociado encontrado: ${klvName}`, 'system');
-                loadKlvFrames(klvName);
-            }
-        }
-
-        function goToKlvFrame(idx) {
-            if (!klvFrames.length) return;
-            klvFrameIndex = Math.max(0, Math.min(klvFrames.length - 1, idx));
-            document.getElementById('klv-frame-slider').value = klvFrameIndex;
-            document.getElementById('klv-frame-label').textContent = `Frame ${klvFrameIndex + 1} / ${klvFrames.length}`;
-            currentKlvData = klvFrames[klvFrameIndex];
-            renderKlvTable(currentKlvData);
-        }
-
-        async function deleteKlv(name) {
-            if (!confirm(`¿Borrar ${name}?`)) return;
-            await fetch(`/api/media/klv/${encodeURIComponent(name)}`, { method: 'DELETE' });
-            addLog(`KLV eliminado: ${name}`, 'system');
-            loadKlvList();
-        }
-
-        // ─── KLV en vivo (desde SignalR) ──────────────────────────────────────
-
-        function updateKlvDroneSelector() {
-            const select = document.getElementById('klv-drone-select');
-            if (!select) return;
-            const prev = select.value;
-            const sns  = Object.keys(droneMarkers);
-            select.innerHTML = '<option value="">-- Dron --</option>' +
-                sns.map(sn => `<option value="${sn}"${prev === sn ? ' selected' : ''}>Dron ${sn}</option>`).join('');
-            if (!select.value && sns.length > 0) select.value = sns[0];
-
-            // Auto-rellenar el campo SN del stream DJI si aún está vacío
-            const snInput = document.getElementById('dji-live-sn');
-            if (snInput && !snInput.value && select.value) {
-                snInput.value = select.value;
-            }
-        }
-
-        function calculateKlvData(sn, lat, lon, alt, gimbalPitch, gimbalRoll, gimbalYaw, heading, zoomFactor, footprint, fcLat, fcLon) {
-            const toRad = d => d * Math.PI / 180;
-            const toDeg = r => r * 180 / Math.PI;
-            const pitchAbs   = Math.abs(gimbalPitch);
-            const slantRange = pitchAbs > 1 ? alt / Math.sin(toRad(pitchAbs)) : alt * 15;
-            const R   = 6371000;
-            const dLt = toRad(footprint[1][0] - footprint[0][0]);
-            const dLn = toRad(footprint[1][1] - footprint[0][1]);
-            const a   = Math.sin(dLt / 2) ** 2 + Math.cos(toRad(footprint[0][0])) * Math.cos(toRad(footprint[1][0])) * Math.sin(dLn / 2) ** 2;
-            const targetWidth = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            const hFov = toDeg(2 * Math.atan(Math.tan(toRad(37)) / zoomFactor));
-            const vFov = toDeg(2 * Math.atan(Math.tan(toRad(29.5)) / zoomFactor));
-            return {
-                tag2_timestamp: new Date().toISOString(),
-                tag5_platformHeading: +heading.toFixed(4), tag6_platformPitch: 0, tag7_platformRoll: 0,
-                tag10_designation: sn,
-                tag13_sensorLat: +lat.toFixed(7), tag14_sensorLon: +lon.toFixed(7), tag15_sensorAlt: +alt.toFixed(2),
-                tag16_hFov: +hFov.toFixed(4), tag17_vFov: +vFov.toFixed(4),
-                tag18_sensorAzimuth: +gimbalYaw.toFixed(4), tag19_sensorElevation: +gimbalPitch.toFixed(4), tag20_sensorRoll: +gimbalRoll.toFixed(4),
-                tag21_slantRange: +slantRange.toFixed(2), tag22_targetWidth: +targetWidth.toFixed(2),
-                tag23_frameCenterLat: +fcLat.toFixed(7), tag24_frameCenterLon: +fcLon.toFixed(7), tag25_frameCenterAlt: 0,
-                tag82_corner1Lat: +footprint[0][0].toFixed(7), tag83_corner1Lon: +footprint[0][1].toFixed(7),
-                tag84_corner2Lat: +footprint[1][0].toFixed(7), tag85_corner2Lon: +footprint[1][1].toFixed(7),
-                tag86_corner3Lat: +footprint[2][0].toFixed(7), tag87_corner3Lon: +footprint[2][1].toFixed(7),
-                tag88_corner4Lat: +footprint[3][0].toFixed(7), tag89_corner4Lon: +footprint[3][1].toFixed(7)
-            };
-        }
-
-        // ─── Renderizado de tabla KLV ─────────────────────────────────────────
-
-        function renderKlvTable(data) {
-            const table = document.getElementById('klv-table');
-            if (!table || !data) return;
-            const v = (val, unit) => val != null ? `${val}${unit ? ' ' + unit : ''}` : '—';
-            const f = (tag, name, value, full) => `
-                <div class="klv-field${full ? ' klv-full-row' : ''}">
-                    <div class="klv-field-meta">
-                        <span class="klv-tag">TAG ${String(tag).padStart(3, '0')}</span>
-                        <span class="klv-name">${name}</span>
-                    </div>
-                    <span class="klv-value">${value}</span>
-                </div>`;
-            table.innerHTML = [
-                f(2,  'Timestamp',      v(data.tag2_timestamp),                    true),
-                f(10, 'Designation',    v(data.tag10_designation),                  false),
-                f(5,  'Plat. Heading',  v(data.tag5_platformHeading, '°'),          false),
-                f(6,  'Plat. Pitch',    v(data.tag6_platformPitch,   '°'),          false),
-                f(7,  'Plat. Roll',     v(data.tag7_platformRoll,    '°'),          false),
-                f(13, 'Sensor Lat',     v(data.tag13_sensorLat, '°'),              false),
-                f(14, 'Sensor Lon',     v(data.tag14_sensorLon, '°'),              false),
-                f(15, 'Sensor Alt',     v(data.tag15_sensorAlt, 'm'),              false),
-                f(16, 'HFOV',           v(data.tag16_hFov, '°'),                   false),
-                f(17, 'VFOV',           v(data.tag17_vFov, '°'),                   false),
-                f(18, 'Sensor Azimuth', v(data.tag18_sensorAzimuth,   '°'),        false),
-                f(19, 'Sensor Elev.',   v(data.tag19_sensorElevation, '°'),        false),
-                f(20, 'Sensor Roll',    v(data.tag20_sensorRoll,      '°'),        false),
-                f(21, 'Slant Range',    v(data.tag21_slantRange,  'm'),            false),
-                f(22, 'Target Width',   v(data.tag22_targetWidth, 'm'),            false),
-                f(23, 'FC Lat',         v(data.tag23_frameCenterLat, '°'),         false),
-                f(24, 'FC Lon',         v(data.tag24_frameCenterLon, '°'),         false),
-                f(25, 'FC Alt',         v(data.tag25_frameCenterAlt, 'm'),         false),
-                f(82, 'Corner 1 Lat',   v(data.tag82_corner1Lat, '°'),             false),
-                f(83, 'Corner 1 Lon',   v(data.tag83_corner1Lon, '°'),             false),
-                f(84, 'Corner 2 Lat',   v(data.tag84_corner2Lat, '°'),             false),
-                f(85, 'Corner 2 Lon',   v(data.tag85_corner2Lon, '°'),             false),
-                f(86, 'Corner 3 Lat',   v(data.tag86_corner3Lat, '°'),             false),
-                f(87, 'Corner 3 Lon',   v(data.tag87_corner3Lon, '°'),             false),
-                f(88, 'Corner 4 Lat',   v(data.tag88_corner4Lat, '°'),             false),
-                f(89, 'Corner 4 Lon',   v(data.tag89_corner4Lon, '°'),             false),
-            ].join('');
-        }
-
-        function copyKlvJson() {
-            if (!Object.keys(currentKlvData).length) {
-                addLog('Sin datos KLV. Selecciona un dron o carga un archivo KLV.', 'system'); return;
-            }
-            navigator.clipboard.writeText(JSON.stringify(currentKlvData, null, 2))
-                .then(() => addLog('KLV JSON copiado al portapapeles.', 'system'))
-                .catch(() => addLog('Error al copiar KLV JSON.', 'system'));
-        }
-
-        async function showFfmpegLog() {
-            const box = document.getElementById('ffmpeg-log-box');
-            if (box.style.display !== 'none') { box.style.display = 'none'; return; }
-            try {
-                // Pedir el log del stream DJI activo si lo hay, si no el legacy
-                const snPath = _activeDjiGatewaySn ? `/${encodeURIComponent(_activeDjiGatewaySn)}` : '';
-                const res  = await fetch(`/api/stream/log${snPath}`, { cache: 'no-store' });
-                const data = await res.json();
-                box.textContent = data.lines.join('\n') || '(sin salida aún — ffmpeg no ha escrito nada todavía)';
-                box.style.display = 'block';
-                box.scrollTop = box.scrollHeight;
-            } catch { box.textContent = 'Error al obtener el log.'; box.style.display = 'block'; }
-        }
-
-        function formatBytes(b) {
-            if (b < 1024) return b + ' B';
-            if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
-            if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
-            return (b / 1073741824).toFixed(2) + ' GB';
-        }
-
-        // ─── Drag del panel ───────────────────────────────────────────────────
-
-        (function initVideoPanelDrag() {
-            const panel  = document.getElementById('video-panel');
-            const header = document.getElementById('video-panel-header');
-            let dragging = false, sx, sy, ox, oy;
-            header.addEventListener('mousedown', e => {
-                dragging = true; sx = e.clientX; sy = e.clientY;
-                const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
-                panel.style.right = 'auto'; panel.style.left = ox + 'px'; panel.style.top = oy + 'px'; e.preventDefault();
-            });
-            document.addEventListener('mousemove', e => {
-                if (!dragging) return;
-                panel.style.left = (ox + e.clientX - sx) + 'px';
-                panel.style.top  = (oy + e.clientY - sy) + 'px';
-            });
-            document.addEventListener('mouseup', () => { dragging = false; });
-        })();
-    </script>
-</body>
-</html>
+        // ─── Tab "Archivo KLV" ─────�

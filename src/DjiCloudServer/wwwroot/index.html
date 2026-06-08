@@ -918,6 +918,14 @@
                     const missionRes = window.djiBridge.platformLoadComponent("mission", "{}");
                     logBridgeResult("Componente 'mission'", missionRes);
 
+                    // 6b. Cargar componente 'liveshare' (Streaming de vídeo)
+                    const liveParam = {
+                        videoPublishType: "video-demand-aux-manual"
+                    };
+                    printLog("Cargando componente 'liveshare'...", 'info');
+                    const liveRes = window.djiBridge.platformLoadComponent("liveshare", JSON.stringify(liveParam));
+                    logBridgeResult("Componente 'liveshare'", liveRes);
+
                     // 7. INICIAR CONEXIÓN MQTT
                     printLog("Iniciando conexión MQTT del dron (thingConnect)...", 'info');
                     const connectRes = window.djiBridge.thingConnect(user, pass, "onThingConnectCallback");
@@ -964,6 +972,7 @@
                 printLog(`[Simulación] platformLoadComponent("ws", ...)`, 'info');
                 printLog(`[Simulación] platformLoadComponent("media", ...)`, 'info');
                 printLog(`[Simulación] platformLoadComponent("mission", "{}")`, 'info');
+                printLog(`[Simulación] platformLoadComponent("liveshare", ...)`, 'info');
                 printLog(`[Simulación] thingConnect("${user}", "••••••••", ...)`, 'info');
                 printLog("[Simulación] Conexión simulada con éxito.", 'success');
                 

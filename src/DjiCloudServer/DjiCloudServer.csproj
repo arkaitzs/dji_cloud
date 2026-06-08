@@ -15,6 +15,7 @@
     <Content Remove="wwwroot\missions\**" />
     <Content Remove="wwwroot\routes\**" />
     <Content Remove="wwwroot\flights\**" />
+    <Content Remove="wwwroot\mqtt_logs\**" />
   </ItemGroup>
 
   <ItemGroup>

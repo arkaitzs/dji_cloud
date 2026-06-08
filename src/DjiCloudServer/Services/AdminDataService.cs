@@ -26,7 +26,10 @@ public class DeviceStatusDto
     public string DeviceType { get; set; } = "Dron"; // Dron, Dock, Mando, etc.
     public double Latitude { get; set; }
     public double Longitude { get; set; }
+    /// <summary>Altura ASL — campo "height" DJI. Relativa al elipsoide terrestre (MSL/ASL).</summary>
     public double Altitude { get; set; }
+    /// <summary>Altura AGL — campo "elevation" DJI. Relativa al punto de despegue del operador.</summary>
+    public double Elevation { get; set; }
     public double Heading { get; set; }
     public double GimbalPitch { get; set; }
     public double GimbalRoll { get; set; }
@@ -37,6 +40,17 @@ public class DeviceStatusDto
     public double SdrFreqBand { get; set; }
     public long LastSeen { get; set; }
     public bool IsOnline { get; set; }
+
+    // mode_code según DJI Cloud API M3/M4 series (pilot-to-cloud MQTT)
+    // 0=En tierra | 1-12,15-18=En vuelo | 13=Actualizando firmware | 14=Sin conexión RC
+    public int ModeCode { get; set; } = -1;
+    public bool IsFlying => ModeCode > 0 && ModeCode != 13 && ModeCode != 14;
+    public int RemainFlightTime { get; set; } = -1;
+    public double HorizontalSpeed { get; set; }
+    public double VerticalSpeed { get; set; }
+    public double AttitudePitch { get; set; }
+    public double AttitudeRoll { get; set; }
+    public bool GpsFixed { get; set; }
 }
 
 public class LogEventDto
@@ -52,7 +66,11 @@ public interface IAdminDataService
     void AddLog(string level, string source, string message);
     void RecordRequest(string method, string path, int statusCode, long elapsedMs, string ip);
     void RecordMqttEvent(string clientId, string topic, string action, string details);
-    void UpdateDeviceTelemetry(string sn, double lat, double lon, double alt, double heading, double pitch, double roll, double yaw, double zoom, int batteryPercent, int gpsNumber, double sdrFreqBand);
+    void UpdateDeviceTelemetry(
+        string sn, double lat, double lon, double alt, double elevation, double heading, double pitch, double roll, double yaw, double zoom,
+        int batteryPercent, int gpsNumber, double sdrFreqBand,
+        int modeCode, int remainFlightTime, double horizontalSpeed, double verticalSpeed,
+        double attitudePitch, double attitudeRoll, bool gpsFixed);
     void SetDeviceOnlineState(string sn, string clientId, string deviceType, bool isOnline);
     void SetDeviceTypeCode(string sn, int typeCode);
     int GetDeviceTypeCode(string sn);
@@ -138,9 +156,13 @@ public class AdminDataService : IAdminDataService
     private const int MaxLogs = 100;
 
     private readonly string _cacheFilePath;
+    private readonly ILogger<AdminDataService> _logger;
+    private readonly IMqttFileLogger _fileLogger;
 
-    public AdminDataService()
+    public AdminDataService(ILogger<AdminDataService> logger, IMqttFileLogger fileLogger)
     {
+        _logger = logger;
+        _fileLogger = fileLogger;
         var appDir = AppDomain.CurrentDomain.BaseDirectory;
         _cacheFilePath = Path.Combine(appDir, "live_capacity_cache.json");
         LoadCache();
@@ -214,7 +236,7 @@ public class AdminDataService : IAdminDataService
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AdminDataService Error] Error al guardar caché persistente: {ex.Message}");
+            _logger.LogError(ex, "[AdminDataService] Error al guardar caché persistente en {Path}", _cacheFilePath);
         }
     }
 
@@ -233,6 +255,13 @@ public class AdminDataService : IAdminDataService
         {
             _logs.TryDequeue(out _);
         }
+
+        // Registrar en el log de archivo unificado, EXCEPTO si es de nivel MQTT (para evitar redundancia, 
+        // ya que el tráfico MQTT se registra en detalle con su propio payload y topic en Program.cs)
+        if (level != "MQTT")
+        {
+            _fileLogger.Log(source, level, payload: message);
+        }
     }
 
     public void RecordRequest(string method, string path, int statusCode, long elapsedMs, string ip)
@@ -245,7 +274,11 @@ public class AdminDataService : IAdminDataService
         AddLog("MQTT", "Broker", $"[{action}] ClientId: {clientId} | Topic: {topic} | {details}");
     }
 
-    public void UpdateDeviceTelemetry(string sn, double lat, double lon, double alt, double heading, double pitch, double roll, double yaw, double zoom, int batteryPercent, int gpsNumber, double sdrFreqBand)
+    public void UpdateDeviceTelemetry(
+        string sn, double lat, double lon, double alt, double elevation, double heading, double pitch, double roll, double yaw, double zoom,
+        int batteryPercent, int gpsNumber, double sdrFreqBand,
+        int modeCode, int remainFlightTime, double horizontalSpeed, double verticalSpeed,
+        double attitudePitch, double attitudeRoll, bool gpsFixed)
     {
         var dev = _devices.GetOrAdd(sn, key => new DeviceStatusDto
         {
@@ -256,10 +289,11 @@ public class AdminDataService : IAdminDataService
 
         lock (dev)
         {
-            dev.Latitude = lat;
-            dev.Longitude = lon;
-            dev.Altitude = alt;
-            dev.Heading = heading;
+            dev.Latitude   = lat;
+            dev.Longitude  = lon;
+            dev.Altitude   = alt;        // ASL: campo "height" DJI (elipsoide)
+            dev.Elevation  = elevation;  // AGL: campo "elevation" DJI (relativo al despegue)
+            dev.Heading    = heading;
             dev.GimbalPitch = pitch;
             dev.GimbalRoll = roll;
             dev.GimbalYaw = yaw;
@@ -269,6 +303,15 @@ public class AdminDataService : IAdminDataService
             dev.SdrFreqBand = sdrFreqBand;
             dev.LastSeen = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             dev.IsOnline = true;
+
+            // Persistent fields
+            if (modeCode >= 0) dev.ModeCode = modeCode;
+            if (remainFlightTime >= 0) dev.RemainFlightTime = remainFlightTime;
+            dev.HorizontalSpeed = horizontalSpeed;
+            dev.VerticalSpeed = verticalSpeed;
+            dev.AttitudePitch = attitudePitch;
+            dev.AttitudeRoll = attitudeRoll;
+            dev.GpsFixed = gpsFixed;
         }
     }
 
@@ -301,9 +344,15 @@ public class AdminDataService : IAdminDataService
         };
     }
 
+    // Tiempo sin OSD para considerar un dron offline.
+    // Debe coincidir con DRONE_OFFLINE_MS en map.html para que el frontend
+    // y la REST API estén de acuerdo en qué drones están "online".
+    // A 0.5 Hz (modo normal) equivale a ~7 paquetes OSD perdidos.
+    private const long DroneOfflineMs = 15_000;
+
     public List<DeviceStatusDto> GetDevices()
     {
-        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - 45000;
+        var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - DroneOfflineMs;
         foreach (var dev in _devices.Values)
         {
             // Mando y Dock: su estado online lo gestiona exclusivamente el evento
@@ -312,7 +361,7 @@ public class AdminDataService : IAdminDataService
             if (dev.IsOnline && dev.DeviceType != "Cliente MQTT" && dev.LastSeen < cutoff)
             {
                 lock (dev) { dev.IsOnline = false; }
-                AddLog("WARN", "Device", $"Dispositivo {dev.Sn} marcado como OFFLINE por inactividad");
+                AddLog("WARN", "Device", $"Dispositivo {dev.Sn} marcado como OFFLINE por inactividad (>{DroneOfflineMs / 1000}s sin OSD)");
             }
         }
         return _devices.Values.OrderByDescending(d => d.LastSeen).ToList();
@@ -330,6 +379,7 @@ public class AdminDataService : IAdminDataService
         {
             dev.LastSeen = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             if (batteryPercent >= 0) dev.BatteryPercent = batteryPercent;
+            if (modeCode >= 0) dev.ModeCode = modeCode;
         }
     }
 
@@ -421,6 +471,66 @@ public class AdminDataService : IAdminDataService
                 var camDto = new LiveCameraDto
                 {
                     CameraIndex = "52-0-0",
+                    VideoList = new List<LiveVideoDto>
+                    {
+                        new LiveVideoDto { VideoIndex = "normal-0", Status = 0 }
+                    }
+                };
+                devDto.CameraList.Add(camDto);
+            }
+        }
+        else if (typeCode == 99) // M4 Series (M4T/M4TD)
+        {
+            if (subtypeCode == 1) // M4T (Thermal)
+            {
+                var camDto = new LiveCameraDto
+                {
+                    CameraIndex = "89-0-0",
+                    VideoList = new List<LiveVideoDto>
+                    {
+                        new LiveVideoDto { VideoIndex = "normal-0", Status = 0 },
+                        new LiveVideoDto { VideoIndex = "zoom-0", Status = 0 },
+                        new LiveVideoDto { VideoIndex = "infra-0", Status = 0 }
+                    }
+                };
+                devDto.CameraList.Add(camDto);
+            }
+            else // M4TD or other
+            {
+                var camDto = new LiveCameraDto
+                {
+                    CameraIndex = "99-0-0",
+                    VideoList = new List<LiveVideoDto>
+                    {
+                        new LiveVideoDto { VideoIndex = "normal-0", Status = 0 },
+                        new LiveVideoDto { VideoIndex = "zoom-0", Status = 0 },
+                        new LiveVideoDto { VideoIndex = "infra-0", Status = 0 }
+                    }
+                };
+                devDto.CameraList.Add(camDto);
+            }
+        }
+        else if (typeCode == 92) // M3D/M3TD Series
+        {
+            if (subtypeCode == 1) // M3TD (Thermal)
+            {
+                var camDto = new LiveCameraDto
+                {
+                    CameraIndex = "80-0-0",
+                    VideoList = new List<LiveVideoDto>
+                    {
+                        new LiveVideoDto { VideoIndex = "normal-0", Status = 0 },
+                        new LiveVideoDto { VideoIndex = "zoom-0", Status = 0 },
+                        new LiveVideoDto { VideoIndex = "infra-0", Status = 0 }
+                    }
+                };
+                devDto.CameraList.Add(camDto);
+            }
+            else // M3D
+            {
+                var camDto = new LiveCameraDto
+                {
+                    CameraIndex = "80-0-0",
                     VideoList = new List<LiveVideoDto>
                     {
                         new LiveVideoDto { VideoIndex = "normal-0", Status = 0 }

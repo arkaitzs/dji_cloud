@@ -89,6 +89,9 @@ builder.Services.AddHostedService(sp => (MqttService)sp.GetRequiredService<IMqtt
 builder.Services.AddSingleton<IFfmpegService, FfmpegService>();
 builder.Services.AddSingleton<IFlightRecorderService, FlightRecorderService>();
 builder.Services.AddHostedService(sp => (FlightRecorderService)sp.GetRequiredService<IFlightRecorderService>());
+builder.Services.AddSingleton<IMqttFileLogger, MqttFileLogger>();
+builder.Services.AddHostedService(sp => (MqttFileLogger)sp.GetRequiredService<IMqttFileLogger>());
+
 
 // Permitir subidas grandes (vídeos)
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
@@ -148,13 +151,20 @@ app.UseMqttServer(server => {
         if (!string.IsNullOrEmpty(clientIp) && !string.IsNullOrEmpty(e.ClientId))
             pendingClientIps[e.ClientId] = clientIp;
 
-        Console.WriteLine($"[MQTT Server] Cliente conectando. ClientId='{e.ClientId}' IP={clientIp}");
+        app.Logger.LogDebug("[MQTT] Cliente conectando. ClientId='{ClientId}' IP={ClientIp}", e.ClientId, clientIp);
+        
+        var fileLogger = app.Services.GetRequiredService<IMqttFileLogger>();
+        fileLogger.Log(e.ClientId ?? "Unknown", "CONNECTING", payload: $"Endpoint: {e.Endpoint}, Username: {e.UserName}");
+
         e.ReasonCode = MqttConnectReasonCode.Success;
         return Task.CompletedTask;
     };
 
     server.ClientConnectedAsync += e => {
-        Console.WriteLine($"[MQTT Server] Cliente conectado. ClientId: '{e.ClientId}'");
+        app.Logger.LogInformation("[MQTT] Cliente conectado. ClientId='{ClientId}'", e.ClientId);
+
+        var fileLogger = app.Services.GetRequiredService<IMqttFileLogger>();
+        fileLogger.Log(e.ClientId ?? "Unknown", "CONNECTED");
 
         var options = app.Services.GetRequiredService<IOptions<DjiCloudOptions>>().Value;
         var serverClientId = options.Mqtt?.ClientId ?? "DjiCloudServer";
@@ -164,34 +174,45 @@ app.UseMqttServer(server => {
         }
 
         var adminData = app.Services.GetRequiredService<IAdminDataService>();
-        adminData.RecordMqttEvent(e.ClientId, "", "CONNECTED", "Cliente conectado al broker MQTT");
-        adminData.SetDeviceOnlineState(e.ClientId, e.ClientId, "Cliente MQTT", true);
+        adminData.RecordMqttEvent(e.ClientId ?? "Unknown", "", "CONNECTED", "Cliente conectado al broker MQTT");
+        adminData.SetDeviceOnlineState(e.ClientId ?? "Unknown", e.ClientId ?? "Unknown", "Cliente MQTT", true);
 
         // Persistir la IP de origen capturada en ValidatingConnectionAsync
-        if (pendingClientIps.TryRemove(e.ClientId, out var ip) && !string.IsNullOrEmpty(ip))
+        if (e.ClientId != null && pendingClientIps.TryRemove(e.ClientId, out var ip) && !string.IsNullOrEmpty(ip))
         {
             adminData.SetDeviceClientIp(e.ClientId, ip);
-            Console.WriteLine($"[MQTT Server] IP origen registrada: {e.ClientId} → {ip}");
+            app.Logger.LogDebug("[MQTT] IP origen registrada. ClientId='{ClientId}' IP={ClientIp}", e.ClientId, ip);
         }
         return Task.CompletedTask;
     };
 
     // Registrar qué topics suscribe cada cliente — diagnóstico crítico
     server.ClientSubscribedTopicAsync += e => {
-        Console.WriteLine($"[MQTT Sub] {e.ClientId} → {e.TopicFilter.Topic} (QoS{(int)e.TopicFilter.QualityOfServiceLevel})");
+        app.Logger.LogDebug("[MQTT] Suscripción. ClientId='{ClientId}' Topic={Topic} QoS={Qos}", e.ClientId, e.TopicFilter.Topic, (int)e.TopicFilter.QualityOfServiceLevel);
+
+        var fileLogger = app.Services.GetRequiredService<IMqttFileLogger>();
+        fileLogger.Log(e.ClientId ?? "Unknown", "SUBSCRIBE", topic: e.TopicFilter.Topic, payload: $"QoS: {e.TopicFilter.QualityOfServiceLevel}");
+
         var adminSub = app.Services.GetRequiredService<IAdminDataService>();
         adminSub.AddLog("INFO", "MQTT-Sub", $"{e.ClientId} se suscribió a {e.TopicFilter.Topic}");
         return Task.CompletedTask;
     };
 
     server.ClientUnsubscribedTopicAsync += e => {
-        Console.WriteLine($"[MQTT Unsub] {e.ClientId} ← {e.TopicFilter}");
+        app.Logger.LogDebug("[MQTT] Baja de suscripción. ClientId='{ClientId}' Topic={Topic}", e.ClientId, e.TopicFilter);
+
+        var fileLogger = app.Services.GetRequiredService<IMqttFileLogger>();
+        fileLogger.Log(e.ClientId ?? "Unknown", "UNSUBSCRIBE", topic: e.TopicFilter);
+
         return Task.CompletedTask;
     };
 
     server.ClientDisconnectedAsync += e => {
-        Console.WriteLine($"[MQTT Server] Cliente desconectado. ClientId: '{e.ClientId}'");
-        
+        app.Logger.LogInformation("[MQTT] Cliente desconectado. ClientId='{ClientId}'", e.ClientId);
+
+        var fileLogger = app.Services.GetRequiredService<IMqttFileLogger>();
+        fileLogger.Log(e.ClientId ?? "Unknown", "DISCONNECTED", payload: $"Type: {e.DisconnectType}");
+
         var options = app.Services.GetRequiredService<IOptions<DjiCloudOptions>>().Value;
         var serverClientId = options.Mqtt?.ClientId ?? "DjiCloudServer";
         if (e.ClientId == serverClientId)
@@ -200,12 +221,28 @@ app.UseMqttServer(server => {
         }
 
         var adminData = app.Services.GetRequiredService<IAdminDataService>();
-        adminData.RecordMqttEvent(e.ClientId, "", "DISCONNECTED", "Cliente desconectado del broker MQTT");
-        adminData.SetDeviceOnlineState(e.ClientId, e.ClientId, "Cliente MQTT", false);
+        adminData.RecordMqttEvent(e.ClientId ?? "Unknown", "", "DISCONNECTED", "Cliente desconectado del broker MQTT");
+        adminData.SetDeviceOnlineState(e.ClientId ?? "Unknown", e.ClientId ?? "Unknown", "Cliente MQTT", false);
         return Task.CompletedTask;
     };
 
     server.InterceptingPublishAsync += async e => {
+        var topic = e.ApplicationMessage.Topic;
+        var payload = System.Text.Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
+
+        // ── ACL guard ──────────────────────────────────────────────────────────
+        // En algunas versiones de MQTTnet el default de ProcessPublish puede ser false
+        // cuando hay handlers registrados. Lo forzamos a true antes de cualquier lógica
+        // para evitar bloqueos silenciosos; cualquier denegación explícita se loguea.
+        if (!e.ProcessPublish)
+            app.Logger.LogWarning("[MQTT-ACL] Broker bloqueó publicación de {ClientId} en {Topic}",
+                e.ClientId, topic);
+        e.ProcessPublish = true;
+
+        // Registrar en el log de tráfico MQTT (incluyendo los del propio servidor)
+        var fileLogger = app.Services.GetRequiredService<IMqttFileLogger>();
+        fileLogger.Log(e.ClientId ?? "Server", "PUBLISH", topic: topic, payload: payload);
+
         var options = app.Services.GetRequiredService<IOptions<DjiCloudOptions>>().Value;
         var serverClientId = options.Mqtt?.ClientId ?? "DjiCloudServer";
         if (e.ClientId == serverClientId)
@@ -213,8 +250,14 @@ app.UseMqttServer(server => {
             return;
         }
 
-        var topic = e.ApplicationMessage.Topic;
-        var payload = System.Text.Encoding.UTF8.GetString(e.ApplicationMessage.PayloadSegment);
+        // ── ACL: excepción para clientes DRC ──────────────────────────────────
+        // ClientId formato "drc-{SNfrag}-{ts}": publica OSD bajo el SN de la aeronave,
+        // no bajo su propio ClientId. Sin esta excepción un ACL estricto los bloquearía.
+        if ((e.ClientId ?? "").StartsWith("drc-") &&
+            (topic.Contains("/osd") || topic.Contains("/state") || topic.Contains("/drc/")))
+        {
+            e.ProcessPublish = true;
+        }
 
         // Catch-all: loggear TODOS los topics recibidos (excluir telemetría de alta frecuencia)
         if (!topic.Contains("/osd") && !topic.Contains("/state"))
@@ -228,7 +271,7 @@ app.UseMqttServer(server => {
         {
             var adminData = app.Services.GetRequiredService<IAdminDataService>();
             var snippet = payload.Length > 120 ? payload.Substring(0, 120) + "..." : payload;
-            adminData.RecordMqttEvent(e.ClientId, topic, "PUBLISH", snippet);
+            adminData.RecordMqttEvent(e.ClientId ?? "Unknown", topic, "PUBLISH", snippet);
         }
         
         // ── DRC: canal de telemetría de alta frecuencia (10-30 Hz) ───────────
@@ -299,7 +342,10 @@ app.UseMqttServer(server => {
                 }
                 skipDrc:;
             }
-            catch { /* JSON malformado, ignorar */ }
+            catch (Exception ex)
+            {
+                app.Logger.LogDebug(ex, "[MQTT-DRC] Error parseando mensaje DRC. Topic={Topic}", topic);
+            }
         }
 
         // ── Parsear eventos HMS (Health Management System) ────────────────────
@@ -331,7 +377,10 @@ app.UseMqttServer(server => {
                     adminEvt.SetHmsCodes(snEvt, codes);
                 }
             }
-            catch { /* JSON malformado, ignorar */ }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "[MQTT-HMS] Error parseando evento HMS. SN={Sn}", snEvt);
+            }
         }
 
         // Interceptamos: services_reply (respuesta de DJI Pilot 2 a comandos de servicio)
@@ -363,6 +412,77 @@ app.UseMqttServer(server => {
                         var hub = app.Services.GetRequiredService<IHubContext<TelemetryHub>>();
                         _ = hub.Clients.All.SendAsync("StreamAck", gatewaySn, result);
                     }
+                    else if (method == "drc_mode_enter")
+                    {
+                        app.Logger.LogInformation(
+                            "[DRC] drc_mode_enter ACK gateway={GatewaySn} result={Result}",
+                            gatewaySn, result);
+
+                        if (result == 0)
+                        {
+                            // Despertar el flujo DRC: el dron no emite osd_info_push hasta que
+                            // el servidor envía drc_initial_state_subscribe por el canal drc/down.
+                            // Esperamos 800 ms para dar tiempo al cliente DRC a conectarse al broker.
+                            _ = Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    await Task.Delay(800);
+                                    var mqttDrc = app.Services.GetRequiredService<IMqttService>();
+                                    var subPayload = JsonSerializer.Serialize(new
+                                    {
+                                        method = "drc_initial_state_subscribe",
+                                        data   = new { }
+                                    });
+                                    await mqttDrc.PublishAsync(
+                                        $"thing/product/{gatewaySn}/drc/down",
+                                        subPayload,
+                                        MqttQualityOfServiceLevel.AtLeastOnce);
+                                    app.Services.GetRequiredService<IAdminDataService>()
+                                        .AddLog("INFO", "DRC",
+                                            $"drc_initial_state_subscribe → {gatewaySn}");
+                                    app.Logger.LogInformation(
+                                        "[DRC] drc_initial_state_subscribe enviado → {GatewaySn}", gatewaySn);
+                                }
+                                catch (Exception exDrc)
+                                {
+                                    app.Logger.LogWarning(exDrc,
+                                        "[DRC] Error enviando drc_initial_state_subscribe → {GatewaySn}",
+                                        gatewaySn);
+                                }
+                            });
+                        }
+                        else
+                        {
+                            app.Logger.LogWarning(
+                                "[DRC] drc_mode_enter RECHAZADO por el dron. gateway={GatewaySn} código={Result}",
+                                gatewaySn, result);
+                        }
+                    }
+                    else if (method == "live_lens_change")
+                    {
+                        var resultDesc = result == 0
+                            ? "OK — lente cambiada en el dron"
+                            : $"ERROR código {result} — el dron rechazó el cambio de lente";
+                        app.Logger.LogInformation(
+                            "[STREAMING] live_lens_change ACK gateway={GatewaySn} result={ResultDesc}",
+                            gatewaySn, resultDesc);
+
+                        var hubLens = app.Services.GetRequiredService<IHubContext<TelemetryHub>>();
+                        _ = hubLens.Clients.All.SendAsync("LensChangeAck", gatewaySn, result);
+                    }
+                    else if (method == "live_set_quality")
+                    {
+                        var resultDesc = result == 0
+                            ? "OK — calidad aplicada"
+                            : $"ERROR código {result} — el dron rechazó el cambio de calidad";
+                        app.Logger.LogInformation(
+                            "[STREAMING] live_set_quality ACK gateway={GatewaySn} result={ResultDesc}",
+                            gatewaySn, resultDesc);
+
+                        var hubQ = app.Services.GetRequiredService<IHubContext<TelemetryHub>>();
+                        _ = hubQ.Clients.All.SendAsync("SetQualityAck", gatewaySn, result);
+                    }
                     else
                     {
                         app.Logger.LogDebug("[MQTT] services_reply [{Method}] gw={GatewaySn} result={Result}",
@@ -380,7 +500,10 @@ app.UseMqttServer(server => {
                         if (parsed != null) adminReply.SetLiveCapacity(gatewaySn, parsed);
                     }
                 }
-                catch { /* JSON malformado, ignorar */ }
+                catch (Exception ex)
+                {
+                    app.Logger.LogWarning(ex, "[MQTT] Error parseando services_reply. Gateway={GatewaySn}", gatewaySn);
+                }
             }
         }
 
@@ -448,12 +571,12 @@ app.UseMqttServer(server => {
                                     await server.InjectApplicationMessage(
                                         new InjectedMqttApplicationMessage(capMsg) { SenderClientId = serverClientId });
 
-                                    Console.WriteLine($"[MQTT] Auto-solicitando live_capacity a {gatewaySnForCap} (vacío o pendiente)");
+                                    app.Logger.LogDebug("[MQTT] Auto-solicitando live_capacity. Gateway={GatewaySn}", gatewaySnForCap);
                                     adminData.AddLog("INFO", "LiveStream", $"Auto-solicitando live_capacity a {gatewaySnForCap} (vacío o pendiente)");
                                 }
                                 catch (Exception ex)
                                 {
-                                    Console.WriteLine($"[MQTT Error] Error auto-requesting capacity: {ex.Message}");
+                                    app.Logger.LogWarning(ex, "[MQTT] Error al auto-solicitar live_capacity. Gateway={GatewaySn}", gatewaySnForCap);
                                 }
                             });
                         }
@@ -478,8 +601,14 @@ app.UseMqttServer(server => {
                             if (topoData.TryGetProperty("type", out var typeEl) &&
                                 typeEl.ValueKind == JsonValueKind.Number)
                             {
-                                adminData.SetDeviceTypeCode(sn, typeEl.GetInt32());
-                                Console.WriteLine($"[MQTT] Dispositivo {sn} tipo={typeEl.GetInt32()} ({(typeEl.GetInt32() == 144 ? "Mando RC" : "Aeronave")})");
+                                var gwTypeCode = typeEl.GetInt32();
+                                adminData.SetDeviceTypeCode(sn, gwTypeCode);
+                                var gwSubType = topoData.TryGetProperty("sub_type", out var gwStEl) && gwStEl.ValueKind == JsonValueKind.Number
+                                    ? gwStEl.GetInt32() : 0;
+                                // INFO siempre visible: crucial para identificar el type_code del M4T
+                                app.Logger.LogInformation("[TOPO] Gateway SN={Sn} type={Type} sub_type={SubType} ({Role})",
+                                    sn, gwTypeCode, gwSubType, gwTypeCode == 144 ? "RC Pro Enterprise" : $"Dispositivo tipo {gwTypeCode}");
+                                adminData.AddLog("INFO", "Topología", $"Gateway {sn}: type={gwTypeCode} sub_type={gwSubType}");
                             }
                             if (topoData.TryGetProperty("sub_type", out var subTypeEl) &&
                                 subTypeEl.ValueKind == JsonValueKind.Number)
@@ -498,18 +627,24 @@ app.UseMqttServer(server => {
                                         var subSn = subSnEl.GetString();
                                         if (!string.IsNullOrEmpty(subSn))
                                         {
+                                            int acType = -1, acSubType = -1;
                                             if (subDev.TryGetProperty("type", out var subTypeVal) &&
                                                 subTypeVal.ValueKind == JsonValueKind.Number)
                                             {
-                                                adminData.SetDeviceTypeCode(subSn, subTypeVal.GetInt32());
+                                                acType = subTypeVal.GetInt32();
+                                                adminData.SetDeviceTypeCode(subSn, acType);
                                             }
                                             if (subDev.TryGetProperty("sub_type", out var subSubTypeVal) &&
                                                 subSubTypeVal.ValueKind == JsonValueKind.Number)
                                             {
-                                                adminData.SetDeviceSubtypeCode(subSn, subSubTypeVal.GetInt32());
+                                                acSubType = subSubTypeVal.GetInt32();
+                                                adminData.SetDeviceSubtypeCode(subSn, acSubType);
                                             }
                                             adminData.SetRcAircraftPairing(sn, subSn);
-                                            Console.WriteLine($"[MQTT] update_topo sub_device emparejado: {sn} <-> {subSn} (tipo={((subDev.TryGetProperty("type", out var stv) && stv.ValueKind == JsonValueKind.Number) ? stv.GetInt32() : -1)}, subtipo={((subDev.TryGetProperty("sub_type", out var sstv) && sstv.ValueKind == JsonValueKind.Number) ? sstv.GetInt32() : -1)})");
+                                            // INFO siempre visible: identifica el type_code de la aeronave (M4T u otros)
+                                            app.Logger.LogInformation("[TOPO] Aeronave SN={AcSn} type={Type} sub_type={SubType} pareada con gateway={GwSn}",
+                                                subSn, acType, acSubType, sn);
+                                            adminData.AddLog("INFO", "Topología", $"Aeronave {subSn}: type={acType} sub_type={acSubType} ← gateway {sn}");
                                         }
                                     }
                                 }
@@ -534,7 +669,7 @@ app.UseMqttServer(server => {
                         await server.InjectApplicationMessage(
                             new InjectedMqttApplicationMessage(replyMsg) { SenderClientId = serverClientId });
 
-                        Console.WriteLine($"[MQTT] update_topo ACK → sys/product/{sn}/status_reply");
+                        app.Logger.LogDebug("[MQTT] update_topo ACK enviado. SN={Sn}", sn);
 
                         // Solicitar live_capacity para conocer cámaras disponibles del dron
                         var capTid = Guid.NewGuid().ToString();
@@ -555,7 +690,7 @@ app.UseMqttServer(server => {
                             .Build();
                         await server.InjectApplicationMessage(
                             new InjectedMqttApplicationMessage(capMsg) { SenderClientId = serverClientId });
-                        Console.WriteLine($"[MQTT] live_capacity request → thing/product/{sn}/services");
+                        app.Logger.LogDebug("[MQTT] live_capacity request enviado. SN={Sn}", sn);
                     }
 
                     if (root.TryGetProperty("data", out var dataElement))
@@ -579,11 +714,15 @@ app.UseMqttServer(server => {
                             modeCode = mc.GetInt32();
 
                         // Estado GPS
+                        // M3/M4 series: position_state.is_fixed = 0(no iniciado) 1(buscando) 2(fix OK) 3(fallido)
+                        // Solo el valor 2 indica fix real — usar > 0 era incorrecto (marcaba "fix" mientras buscaba)
                         int gpsFixed = 0, gpsCountStatus = 0;
                         if (dataElement.TryGetProperty("position_state", out var posState) && posState.ValueKind == JsonValueKind.Object)
                         {
-                            if (posState.TryGetProperty("is_fixed",   out var isFixed)) gpsFixed        = isFixed.ValueKind == JsonValueKind.Number ? isFixed.GetInt32() : 0;
-                            if (posState.TryGetProperty("gps_number", out var gpsNs))   gpsCountStatus   = gpsNs.ValueKind   == JsonValueKind.Number ? gpsNs.GetInt32()  : 0;
+                            if (posState.TryGetProperty("is_fixed",   out var isFixed) && isFixed.ValueKind == JsonValueKind.Number)
+                                gpsFixed = isFixed.GetInt32() == 2 ? 1 : 0; // 2 = Fixing successful
+                            if (posState.TryGetProperty("gps_number", out var gpsNs) && gpsNs.ValueKind == JsonValueKind.Number)
+                                gpsCountStatus = gpsNs.GetInt32();
                         }
                         if (dataElement.TryGetProperty("gps_number", out var gpsDirectN) && gpsDirectN.ValueKind == JsonValueKind.Number)
                             gpsCountStatus = gpsDirectN.GetInt32();
@@ -594,6 +733,15 @@ app.UseMqttServer(server => {
                         if (dataElement.TryGetProperty("attitude_head",    out var ah)) attitudeHead    = ah.GetDouble();
                         else if (dataElement.TryGetProperty("yaw",    out var yawS))   attitudeHead    = yawS.GetDouble();
                         else if (dataElement.TryGetProperty("heading", out var hdgS))  attitudeHead    = hdgS.GetDouble();
+
+                        double verticalSpeed = 0.0;
+                        if (dataElement.TryGetProperty("vertical_speed", out var vs)) verticalSpeed = vs.GetDouble();
+
+                        double attitudePitch = 0.0;
+                        if (dataElement.TryGetProperty("attitude_pitch", out var ap)) attitudePitch = ap.GetDouble();
+
+                        double attitudeRoll = 0.0;
+                        if (dataElement.TryGetProperty("attitude_roll", out var ar)) attitudeRoll = ar.GetDouble();
 
                         // ── Mapeo RC↔aeronave desde thing/{sn}/state con campo "gateway" ──────
                         if (root.TryGetProperty("gateway", out var gwEl) && gwEl.ValueKind == JsonValueKind.String)
@@ -653,7 +801,12 @@ app.UseMqttServer(server => {
                             // Coordenadas (0,0) = sin fix real — ignorar
                             if (latitude == 0.0 && longitude == 0.0) goto skipPosition;
 
-                            double altitude = dataElement.TryGetProperty("height", out var heightProp) ? heightProp.GetDouble() : 0.0;
+                            // height  = ASL (altura absoluta sobre el elipsoide terrestre)
+                            // elevation = AGL (relativa al punto de despegue del operador)
+                            double altitude  = dataElement.TryGetProperty("height",     out var heightProp) ? heightProp.GetDouble() : 0.0;
+                            double elevation = dataElement.TryGetProperty("elevation",  out var elevProp)   ? elevProp.GetDouble()   : 0.0;
+                            // Fallback: si elevation no viene (dispositivos más viejos), usar altitude como aproximación
+                            if (elevation == 0.0 && altitude != 0.0) elevation = altitude;
                             
                             // Extraer gimbal, heading del dron y factor de zoom de la cámara (con fallback múltiple para mayor robustez)
                             double gimbalPitch = -90.0; // Valor por defecto (apuntando hacia abajo)
@@ -843,14 +996,18 @@ app.UseMqttServer(server => {
                                 trajectoryStore.AddPosition(posSn, latitude, longitude, altitude);
 
                                 await hubContext.Clients.All.SendCoreAsync("UpdateDronePosition",
-                                    new object[] { posSn, latitude, longitude, altitude, gimbalPitch, gimbalRoll, gimbalYaw, heading, zoomFactor, batteryPercent, gpsNumber, sdrFreqBand });
+                                    new object[] { posSn, latitude, longitude, altitude, gimbalPitch, gimbalRoll, gimbalYaw, heading, zoomFactor, batteryPercent, gpsNumber, sdrFreqBand, elevation });
 
                                 var flightRecorder = app.Services.GetRequiredService<IFlightRecorderService>();
                                 flightRecorder.AddFrame(posSn, latitude, longitude, altitude, heading, gimbalPitch, gimbalRoll, gimbalYaw, zoomFactor);
                             }
 
                             // Registrar la telemetría en el panel de administración
-                            adminData.UpdateDeviceTelemetry(sn, latitude, longitude, altitude, heading, gimbalPitch, gimbalRoll, gimbalYaw, zoomFactor, batteryPercent, gpsNumber, sdrFreqBand);
+                            adminData.UpdateDeviceTelemetry(
+                                sn, latitude, longitude, altitude, elevation, heading, gimbalPitch, gimbalRoll, gimbalYaw, zoomFactor,
+                                batteryPercent, gpsNumber, sdrFreqBand,
+                                modeCode, remainFlightTime, horizontalSpeed, verticalSpeed,
+                                attitudePitch, attitudeRoll, gpsFixed > 0);
                         }
                         skipPosition:; // destino del goto cuando lat/lon = (0,0)
 
@@ -888,7 +1045,7 @@ app.UseMqttServer(server => {
                 catch (Exception ex)
                 {
                     // Evitamos que un error de parsing bloquee el broker
-                    Console.WriteLine($"[MQTT Error] Error al procesar telemetría del dron {sn}: {ex.Message}");
+                    app.Logger.LogWarning(ex, "[MQTT] Error al procesar telemetría. SN={Sn}", sn);
                 }
             }
         }
@@ -897,7 +1054,7 @@ app.UseMqttServer(server => {
 
 // Crear directorios estáticos necesarios en wwwroot
 var wwwroot = app.Environment.WebRootPath;
-foreach (var dir in new[] { "hls", "videos", "klv", "missions", "routes", "flights" })
+foreach (var dir in new[] { "hls", "videos", "klv", "missions", "routes", "flights", "mqtt_logs" })
     Directory.CreateDirectory(Path.Combine(wwwroot, dir));
 
 // Detener ffmpeg limpiamente al apagar la aplicación
@@ -949,7 +1106,7 @@ app.Use(async (context, next) =>
         if (context.WebSockets.IsWebSocketRequest)
         {
             using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-            Console.WriteLine("[WebSocket Server] Mando conectado al WebSocket.");
+            app.Logger.LogInformation("[WebSocket] Mando conectado.");
             
             var adminData = context.RequestServices.GetRequiredService<IAdminDataService>();
             adminData.AddLog("INFO", "WebSocket", "Mando conectado al canal WebSocket (/ws)");
@@ -973,7 +1130,7 @@ app.Use(async (context, next) =>
             }
             finally
             {
-                Console.WriteLine("[WebSocket Server] Mando desconectado del WebSocket.");
+                app.Logger.LogInformation("[WebSocket] Mando desconectado.");
                 adminData.AddLog("WARN", "WebSocket", "Mando desconectado del canal WebSocket");
             }
         }
@@ -1052,10 +1209,19 @@ app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 // ─── Network probe periódico ──────────────────────────────────────────────
 // DJI Pilot 2 requiere recibir probes de red del servidor antes de autorizar
 // el live streaming. Sin probes, ignora los comandos live_start_push.
+//
+// El mismo bucle envía el heartbeat DRC (thing/product/{sn}/drc/down) cada 3 s
+// con un seq incremental por gateway — DJI cierra el canal si no recibe el heartbeat.
+var _drcHeartbeatSeq = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+var _probeAppCt = app.Lifetime.ApplicationStopping;
+
 _ = Task.Run(async () =>
 {
-    await Task.Delay(3000); // Esperar a que el servidor esté completamente iniciado
-    while (true)
+    // Esperar a que el servidor esté completamente iniciado
+    try { await Task.Delay(3000, _probeAppCt); }
+    catch (OperationCanceledException) { return; }
+
+    while (!_probeAppCt.IsCancellationRequested)
     {
         try
         {
@@ -1066,62 +1232,14 @@ _ = Task.Run(async () =>
 
             foreach (var gw in adminSvc.GetGateways().Where(g => g.IsOnline))
             {
-                // Probe de red
+                // Probe de red al gateway
                 await mqttSvc.PublishAsync($"sys/product/{gw.GatewaySn}/network/probe",
                     probeJson, MqttQualityOfServiceLevel.AtMostOnce);
+
+                // Probe de red a la aeronave pareada (si existe)
                 if (!string.IsNullOrEmpty(gw.AircraftSn))
                     await mqttSvc.PublishAsync($"sys/product/{gw.AircraftSn}/network/probe",
                         probeJson, MqttQualityOfServiceLevel.AtMostOnce);
 
-                // Heartbeat DRC (necesario cada ≤3s para mantener el modo activo)
-                if (adminSvc.IsDrcActive(gw.GatewaySn))
-                {
-                    var hbJson = System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        method = "heart_beat",
-                        data   = new { timestamp = ts }
-                    });
-                    await mqttSvc.PublishAsync($"thing/product/{gw.GatewaySn}/drc/down",
-                        hbJson, MqttQualityOfServiceLevel.AtMostOnce);
-                }
-            }
-        }
-        catch { /* No bloquear la tarea por errores de MQTT */ }
-
-        await Task.Delay(3000); // Probe cada 3 segundos
-    }
-});
-
-app.Run();
-
-// ─── Helpers de arranque ──────────────────────────────────────────────────────
-
-static void OpenRtmpFirewallRule(ILogger logger)
-{
-    try
-    {
-        // Abrir el rango completo del pool RTMP (1935-1954) para entrada TCP
-        const string args = "advfirewall firewall add rule " +
-                            "name=\"DJI_Cloud_RTMP\" " +
-                            "dir=in action=allow protocol=TCP " +
-                            "localport=1935-1954 enable=yes";
-        using var proc = System.Diagnostics.Process.Start(
-            new System.Diagnostics.ProcessStartInfo("netsh", args)
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError  = true,
-                UseShellExecute        = false,
-                CreateNoWindow         = true
-            })!;
-        proc.WaitForExit(5000);
-        var output = proc.StandardOutput.ReadToEnd().Trim();
-        if (proc.ExitCode == 0)
-            logger.LogInformation("[Firewall] Regla DJI_Cloud_RTMP (1935-1954) creada/confirmada: {Output}", output);
-        else
-            logger.LogWarning("[Firewall] netsh salió con código {Code}: {Output}", proc.ExitCode, output);
-    }
-    catch (Exception ex)
-    {
-        logger.LogWarning("[Firewall] No se pudo aplicar la regla (¿sin permisos de administrador?): {Msg}", ex.Message);
-    }
-}
+                // Heartbeat DRC — obligatorio cada ≤3 s para que DJI mantenga el canal abierto.
+                // El campo 'seq' debe incrementarse en cada envío (spec DJI Cloud API).

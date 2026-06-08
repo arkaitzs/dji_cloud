@@ -30,8 +30,17 @@ public interface IFfmpegService : IDisposable
     /// <summary>Busca un stream por SN de gateway.</summary>
     StreamInfo? GetBySn(string gatewaySn);
 
-    /// <summary>Mata todos los procesos ffmpeg.exe huérfanos al arrancar el servidor.</summary>
+    /// <summary>Mata todos los procesos ffmpeg.exe y mediamtx.exe huérfanos al arrancar el servidor.</summary>
     Task KillOrphansAsync();
+
+    /// <summary>Garantiza que el servidor de streaming MediaMTX esté en ejecución en segundo plano.</summary>
+    Task EnsureMediaMtxRunningAsync();
+
+    /// <summary>Devuelve la ruta del fichero mediamtx.log, o null si no se localiza el directorio.</summary>
+    string? GetMediaMtxLogPath();
+
+    /// <summary>Mata la instancia de MediaMTX en curso y la reinicia, para que aplique cambios en mediamtx.yml.</summary>
+    Task RestartMediaMtxAsync();
 
     /// <summary>Devuelve el stderr del proceso ffmpeg asociado a un gateway SN, o el del relay legacy si sn es null.</summary>
     string GetLastStderr(string? gatewaySn = null);
@@ -63,13 +72,65 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
     private readonly ConcurrentDictionary<string, FfmpegInstance> _streams = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _portLock = new(1, 1);
 
-    // ─ Estado legacy (un solo relay RTSP) ────────────────────────────────────
-    private Process?      _legacyProcess;
+    // ─ Estado MediaMTX y legacy (un solo relay RTSP) ──────────────────────────
+    private Process?      _mediaMtxProcess;
     private readonly StringBuilder _legacyStderr = new();
-    public bool    IsRunning     => _legacyProcess is { HasExited: false };
+    public bool    IsRunning     => false;
     public string? CurrentSource { get; private set; }
     public string  LastStderr    => _legacyStderr.ToString();
     public int     RtmpPort      => _streams.IsEmpty ? 0 : _streams.Values.First().Port;
+
+    public string? GetMediaMtxLogPath()
+    {
+        var resolved = ResolveMediaMtx();
+        return resolved.HasValue ? Path.Combine(resolved.Value.workingDir, "mediamtx.log") : null;
+    }
+
+    public async Task RestartMediaMtxAsync()
+    {
+        // Matar instancia actual (la interna y cualquier huérfano)
+        if (_mediaMtxProcess != null && !_mediaMtxProcess.HasExited)
+        {
+            try { _mediaMtxProcess.Kill(entireProcessTree: true); } catch { }
+            try { _mediaMtxProcess.Dispose(); } catch { }
+            _mediaMtxProcess = null;
+        }
+        foreach (var proc in Process.GetProcessesByName("mediamtx"))
+        {
+            try { proc.Kill(entireProcessTree: true); proc.Dispose(); } catch { }
+        }
+
+        await Task.Delay(800); // esperar a que el proceso libere el puerto
+        await EnsureMediaMtxRunningAsync();
+    }
+
+    private static (string exePath, string workingDir)? ResolveMediaMtx()
+    {
+        var baseDir = AppContext.BaseDirectory;
+        var pathsToTry = new[]
+        {
+            Path.Combine(baseDir, "mediamate_server"),
+            Path.Combine(baseDir, "..", "..", "..", "..", "..", "mediamate_server"), // bin/Debug/net10.0 → project root
+            Path.Combine(baseDir, "..", "..", "..", "..", "mediamate_server"),
+            Path.Combine(baseDir, "..", "..", "..", "mediamate_server"),
+            Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "mediamate_server")),
+            Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "mediamate_server")),
+        };
+
+        foreach (var dir in pathsToTry)
+        {
+            var exe = Path.Combine(dir, "mediamtx.exe");
+            if (File.Exists(exe))
+            {
+                return (exe, dir);
+            }
+        }
+
+        if (File.Exists(Path.Combine(baseDir, "mediamtx.exe")))
+            return (Path.Combine(baseDir, "mediamtx.exe"), baseDir);
+
+        return null;
+    }
 
     // ─ Helpers ────────────────────────────────────────────────────────────────
 
@@ -129,8 +190,6 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
     public async Task KillOrphansAsync()
     {
         var procs = Process.GetProcessesByName("ffmpeg");
-        if (procs.Length == 0) return;
-
         foreach (var proc in procs)
         {
             try
@@ -138,11 +197,24 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
                 logger.LogWarning("[ffmpeg] Huérfano eliminado al arrancar: PID {Pid}", proc.Id);
                 proc.Kill(entireProcessTree: true);
             }
-            catch { /* proceso ya muerto */ }
+            catch { }
             finally { proc.Dispose(); }
         }
+
+        var mtxProcs = Process.GetProcessesByName("mediamtx");
+        foreach (var proc in mtxProcs)
+        {
+            try
+            {
+                logger.LogWarning("[MediaMTX] Huérfano eliminado al arrancar: PID {Pid}", proc.Id);
+                proc.Kill(entireProcessTree: true);
+            }
+            catch { }
+            finally { proc.Dispose(); }
+        }
+
         await Task.Delay(600); // esperar a que los puertos se liberen
-        logger.LogInformation("[ffmpeg] {Count} proceso(s) huérfano(s) eliminados.", procs.Length);
+        logger.LogInformation("[Streaming] Procesos huérfanos eliminados.");
     }
 
     public string GetLastStderr(string? gatewaySn = null)
@@ -150,139 +222,71 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
         if (!string.IsNullOrWhiteSpace(gatewaySn) &&
             _streams.TryGetValue(gatewaySn, out var inst))
             return inst.Stderr.ToString();
-        // Fallback: last dead instance stderr or legacy relay
-        return _lastDeadStderr ?? _legacyStderr.ToString();
+        // Fallback: legacy relay
+        return _legacyStderr.ToString();
     }
-
-    // Guarda el stderr del último proceso que murió para diagnóstico post-mortem
-    private string? _lastDeadStderr;
 
     public async Task<StreamInfo?> StartRtmpListenerAsync(
         string gatewaySn, string localIp, int preferredPort, string hlsDir,
         string videoId = "", string aircraftSn = "")
     {
-        // Si ya hay un stream para este SN, pararlo primero
-        if (_streams.TryGetValue(gatewaySn, out var existing))
+        logger.LogInformation("[Streaming] StartRtmpListenerAsync llamado para {GatewaySn} (FFmpeg desactivado incondicionalmente).", gatewaySn);
+        await EnsureMediaMtxRunningAsync();
+        return null;
+    }
+
+    public async Task EnsureMediaMtxRunningAsync()
+    {
+        var existing = Process.GetProcessesByName("mediamtx");
+        if (existing.Length > 0)
         {
-            logger.LogInformation("[ffmpeg] Stream previo para {SN} detectado (puerto {Port}). Deteniéndolo.", gatewaySn, existing.Port);
-            await StopInstanceAsync(gatewaySn, existing);
+            logger.LogInformation("[MediaMTX] Ya se encuentra en ejecución ({Count} instancia(s)).", existing.Length);
+            return;
         }
 
-        // Asignar puerto: protegido con semáforo para evitar race conditions
-        int port;
-        await _portLock.WaitAsync();
-        try { port = FindFreePort(preferredPort); }
-        finally { _portLock.Release(); }
-
-        // Slug corto para el nombre de archivo HLS (evitar caracteres peligrosos)
-        var slug    = SanitizeSlug(gatewaySn);
-        var hlsFile = $"live-{slug}.m3u8";
-        var pattern = Path.Combine(hlsDir, $"live-{slug}%03d.ts");
-        var m3u8    = Path.Combine(hlsDir, hlsFile);
-
-        Directory.CreateDirectory(hlsDir);
-        foreach (var f in Directory.GetFiles(hlsDir, $"live-{slug}*")) File.Delete(f);
-
-        var rtmpUrl = $"rtmp://{localIp}:{port}/live/drone";
-        var ffmpegExe = ResolveFfmpegPath();
-
-        var psi = new ProcessStartInfo(ffmpegExe)
+        var resolved = ResolveMediaMtx();
+        if (resolved == null)
         {
-            RedirectStandardError  = true,
-            RedirectStandardOutput = true,
-            UseShellExecute        = false,
-            CreateNoWindow         = true
-        };
+            logger.LogError("[MediaMTX] ❌ No se encontró mediamtx.exe.");
+            return;
+        }
 
-        // ── Entrada RTMP listener ─────────────────────────────────────────────
-        psi.ArgumentList.Add("-listen");  psi.ArgumentList.Add("1");
-        psi.ArgumentList.Add("-timeout"); psi.ArgumentList.Add("120000000");
-        psi.ArgumentList.Add("-i");       psi.ArgumentList.Add($"rtmp://0.0.0.0:{port}/live/drone");
-
-        // ── Mapeo ──────────────────────────────────────────────────────────────
-        psi.ArgumentList.Add("-map"); psi.ArgumentList.Add("0:v:0");
-        psi.ArgumentList.Add("-map"); psi.ArgumentList.Add("0:a:0?");
-
-        // ── Códecs ─────────────────────────────────────────────────────────────
-        psi.ArgumentList.Add("-c:v");          psi.ArgumentList.Add("libx264");
-        psi.ArgumentList.Add("-preset");        psi.ArgumentList.Add("ultrafast");
-        psi.ArgumentList.Add("-tune");          psi.ArgumentList.Add("zerolatency");
-        psi.ArgumentList.Add("-crf");           psi.ArgumentList.Add("28");
-        psi.ArgumentList.Add("-g");             psi.ArgumentList.Add("60");
-        psi.ArgumentList.Add("-keyint_min");    psi.ArgumentList.Add("60");
-        psi.ArgumentList.Add("-sc_threshold");  psi.ArgumentList.Add("0");
-        psi.ArgumentList.Add("-c:a");           psi.ArgumentList.Add("aac");
-        psi.ArgumentList.Add("-ar");            psi.ArgumentList.Add("44100");
-        psi.ArgumentList.Add("-avoid_negative_ts"); psi.ArgumentList.Add("make_zero");
-        psi.ArgumentList.Add("-fflags");        psi.ArgumentList.Add("+genpts+discardcorrupt");
-
-        // ── HLS ────────────────────────────────────────────────────────────────
-        psi.ArgumentList.Add("-f");              psi.ArgumentList.Add("hls");
-        psi.ArgumentList.Add("-hls_time");       psi.ArgumentList.Add("2");
-        psi.ArgumentList.Add("-hls_list_size");  psi.ArgumentList.Add("6");
-        psi.ArgumentList.Add("-hls_flags");
-        psi.ArgumentList.Add("delete_segments+append_list+omit_endlist+temp_file");
-        psi.ArgumentList.Add("-hls_segment_filename"); psi.ArgumentList.Add(pattern);
-        psi.ArgumentList.Add(m3u8);
-
-        // Loggear el comando exacto para diagnóstico
-        var cmdLine = $"{ffmpegExe} {string.Join(" ", psi.ArgumentList.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}";
-        logger.LogInformation("[ffmpeg:{SN}] Comando: {Cmd}", gatewaySn, cmdLine);
+        var (exePath, workingDir) = resolved.Value;
+        logger.LogInformation("[MediaMTX] Arrancando mediamtx.exe desde: {Path} con WorkingDir: {WDir}", exePath, workingDir);
 
         try
         {
-            var stderr = new StringBuilder();
-            stderr.AppendLine($"CMD: {cmdLine}");
-            var proc   = new Process { StartInfo = psi, EnableRaisingEvents = true };
-
-            proc.ErrorDataReceived += (_, e) =>
+            var psi = new ProcessStartInfo(exePath)
             {
-                if (e.Data is null) return;
-                stderr.AppendLine(e.Data);
-                if (logger.IsEnabled(LogLevel.Debug))
-                    logger.LogDebug("[ffmpeg:{SN}] {Line}", gatewaySn, e.Data);
+                WorkingDirectory = workingDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
-            proc.Exited += (_, _) =>
+
+            var proc = new Process { StartInfo = psi };
+            proc.OutputDataReceived += (sender, e) =>
             {
-                var tail = stderr.ToString();
-                _lastDeadStderr = tail;
-                logger.LogWarning("[ffmpeg:{SN}] Proceso terminó (port {Port}). Tail:\n{Stderr}",
-                    gatewaySn, port, tail[^Math.Min(2000, tail.Length)..]);
-                _streams.TryRemove(gatewaySn, out _);
+                if (!string.IsNullOrEmpty(e.Data))
+                    logger.LogDebug("[MediaMTX] {Log}", e.Data);
+            };
+            proc.ErrorDataReceived += (sender, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                    logger.LogWarning("[MediaMTX-Err] {Log}", e.Data);
             };
 
             proc.Start();
-            proc.BeginErrorReadLine();
             proc.BeginOutputReadLine();
-
-            // Esperar 2s: si ffmpeg muere de inmediato es un error de config/puerto
-            await Task.Delay(2000);
-            if (proc.HasExited)
-            {
-                // Dar tiempo al lector asíncrono para vaciar el buffer
-                await Task.Delay(300);
-                var errText = stderr.ToString();
-                _lastDeadStderr = errText;
-                logger.LogError("[ffmpeg:{SN}] Terminó inmediatamente (código {Code}).\n{Stderr}",
-                    gatewaySn, proc.ExitCode, errText);
-                proc.Dispose();
-                return null;
-            }
-
-            var info     = new StreamInfo(gatewaySn, port, rtmpUrl, $"/hls/{hlsFile}",
-                string.IsNullOrEmpty(aircraftSn) ? gatewaySn : aircraftSn,
-                videoId);
-            var instance = new FfmpegInstance(proc, port, info, stderr);
-            _streams[gatewaySn] = instance;
-
-            logger.LogInformation("[ffmpeg:{SN}] Escuchando RTMP en :{Port} → HLS {File}",
-                gatewaySn, port, hlsFile);
-            return info;
+            proc.BeginErrorReadLine();
+            _mediaMtxProcess = proc;
+            logger.LogInformation("[MediaMTX] mediamtx.exe arrancado con PID {Pid}.", proc.Id);
+            await Task.Delay(1000); // espera breve de inicialización
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[ffmpeg:{SN}] No se pudo iniciar en puerto {Port}.", gatewaySn, port);
-            return null;
+            logger.LogError(ex, "[MediaMTX] Error al arrancar mediamtx.exe");
         }
     }
 
@@ -342,115 +346,34 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
 
     // ─ API legacy (relay RTSP/RTMP → HLS) ────────────────────────────────────
 
-    public async Task<bool> StartAsync(string sourceUrl, string hlsDir)
+    public Task<bool> StartAsync(string sourceUrl, string hlsDir)
     {
-        Stop();
-        _legacyStderr.Clear();
-
-        Directory.CreateDirectory(hlsDir);
-        foreach (var f in Directory.GetFiles(hlsDir, "live.*")) File.Delete(f);
-
-        var m3u8    = Path.Combine(hlsDir, "live.m3u8");
-        var pattern = Path.Combine(hlsDir, "live%03d.ts");
-        var isRtsp  = sourceUrl.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase);
-        var isRtmp  = sourceUrl.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase);
-        var ffmpegExe = ResolveFfmpegPath();
-
-        var psi = new ProcessStartInfo(ffmpegExe)
-        {
-            RedirectStandardError  = true,
-            RedirectStandardOutput = true,
-            UseShellExecute        = false,
-            CreateNoWindow         = true
-        };
-
-        if (isRtsp)
-        {
-            psi.ArgumentList.Add("-rtsp_transport"); psi.ArgumentList.Add("tcp");
-            psi.ArgumentList.Add("-rtsp_flags");     psi.ArgumentList.Add("prefer_tcp");
-            psi.ArgumentList.Add("-timeout");        psi.ArgumentList.Add("5000000");
-        }
-        else if (isRtmp)
-        {
-            psi.ArgumentList.Add("-timeout"); psi.ArgumentList.Add("5000000");
-        }
-
-        psi.ArgumentList.Add("-i"); psi.ArgumentList.Add(sourceUrl);
-        psi.ArgumentList.Add("-map"); psi.ArgumentList.Add("0:v:0");
-        psi.ArgumentList.Add("-map"); psi.ArgumentList.Add("0:a:0?");
-        psi.ArgumentList.Add("-c:v");     psi.ArgumentList.Add("libx264");
-        psi.ArgumentList.Add("-preset");  psi.ArgumentList.Add("ultrafast");
-        psi.ArgumentList.Add("-tune");    psi.ArgumentList.Add("zerolatency");
-        psi.ArgumentList.Add("-crf");     psi.ArgumentList.Add("28");
-        psi.ArgumentList.Add("-g");       psi.ArgumentList.Add("60");
-        psi.ArgumentList.Add("-keyint_min"); psi.ArgumentList.Add("60");
-        psi.ArgumentList.Add("-sc_threshold"); psi.ArgumentList.Add("0");
-        psi.ArgumentList.Add("-c:a");           psi.ArgumentList.Add("aac");
-        psi.ArgumentList.Add("-ar");            psi.ArgumentList.Add("44100");
-        psi.ArgumentList.Add("-avoid_negative_ts"); psi.ArgumentList.Add("make_zero");
-        psi.ArgumentList.Add("-fflags");        psi.ArgumentList.Add("+genpts+discardcorrupt");
-        psi.ArgumentList.Add("-f");             psi.ArgumentList.Add("hls");
-        psi.ArgumentList.Add("-hls_time");      psi.ArgumentList.Add("2");
-        psi.ArgumentList.Add("-hls_list_size"); psi.ArgumentList.Add("6");
-        psi.ArgumentList.Add("-hls_flags");
-        psi.ArgumentList.Add("delete_segments+append_list+omit_endlist+temp_file");
-        psi.ArgumentList.Add("-hls_segment_filename");  psi.ArgumentList.Add(pattern);
-        psi.ArgumentList.Add(m3u8);
-
-        try
-        {
-            _legacyProcess = new Process { StartInfo = psi, EnableRaisingEvents = true };
-            _legacyProcess.ErrorDataReceived += (_, e) =>
-            {
-                if (e.Data is null) return;
-                _legacyStderr.AppendLine(e.Data);
-            };
-            _legacyProcess.Exited += (_, _) =>
-            {
-                if (CurrentSource is null) return;
-                logger.LogWarning("[ffmpeg-legacy] Proceso terminó inesperadamente.");
-                CurrentSource = null;
-            };
-
-            _legacyProcess.Start();
-            _legacyProcess.BeginErrorReadLine();
-            _legacyProcess.BeginOutputReadLine();
-
-            await Task.Delay(4000);
-            if (_legacyProcess.HasExited)
-            {
-                logger.LogError("[ffmpeg-legacy] Terminó con código {Code}.", _legacyProcess.ExitCode);
-                CurrentSource = null;
-                return false;
-            }
-
-            CurrentSource = sourceUrl;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "[ffmpeg-legacy] No se pudo iniciar.");
-            CurrentSource = null;
-            return false;
-        }
+        logger.LogWarning("[Streaming-legacy] StartAsync llamado para {Url} (FFmpeg desactivado incondicionalmente).", sourceUrl);
+        return Task.FromResult(false);
     }
 
     public void Stop()
     {
-        CurrentSource = null;
-        if (_legacyProcess is { HasExited: false })
-        {
-            try { _legacyProcess.Kill(entireProcessTree: true); } catch { }
-            _legacyProcess.WaitForExit(3000);
-        }
-        _legacyProcess?.Dispose();
-        _legacyProcess = null;
+        // Legacy Stop
     }
 
     public void Dispose()
     {
         Stop();
         StopAllAsync().GetAwaiter().GetResult();
+
+        if (_mediaMtxProcess != null && !_mediaMtxProcess.HasExited)
+        {
+            try
+            {
+                logger.LogInformation("[MediaMTX] Deteniendo mediamtx.exe...");
+                _mediaMtxProcess.Kill(entireProcessTree: true);
+                _mediaMtxProcess.Dispose();
+            }
+            catch {}
+            _mediaMtxProcess = null;
+        }
+
         _portLock.Dispose();
     }
 
