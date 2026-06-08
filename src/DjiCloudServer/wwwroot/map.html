@@ -76,12 +76,23 @@
         }
 
         /* Panel HUD Superpuesto (Izquierda) */
+        /* ── Scrollbars globales temáticas ──────────────────────────────────── */
+        ::-webkit-scrollbar              { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track        { background: rgba(10, 11, 16, 0.4); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb        { background: rgba(99, 102, 241, 0.45); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover  { background: rgba(6, 182, 212, 0.65); }
+        ::-webkit-scrollbar-corner       { background: transparent; }
+        /* Firefox */
+        * { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.45) rgba(10,11,16,0.4); }
+
         .hud-panel {
             position: absolute;
             top: 24px;
             left: 24px;
             z-index: 1000;
             width: 320px;
+            min-width: 240px;
+            max-width: 520px;
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
             border-radius: 20px;
@@ -92,6 +103,31 @@
             pointer-events: auto;
             animation: slide-in-left 0.5s cubic-bezier(0.16, 1, 0.3, 1);
             transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Handle de redimensionado derecho */
+        .hud-resize-handle {
+            position: absolute;
+            top: 0; right: -5px;
+            width: 10px; height: 100%;
+            cursor: ew-resize;
+            z-index: 1002;
+            border-radius: 0 20px 20px 0;
+        }
+        .hud-resize-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%; left: 3px;
+            transform: translateY(-50%);
+            width: 2px; height: 32px;
+            background: rgba(99,102,241,0.35);
+            border-radius: 2px;
+            transition: background 0.2s;
+        }
+        .hud-resize-handle:hover::after,
+        .hud-resize-handle.resizing::after {
+            background: var(--accent-cyan);
+            box-shadow: 0 0 6px rgba(6,182,212,0.5);
         }
 
         .hud-panel.collapsed {
@@ -1346,6 +1382,8 @@
 
     <!-- HUD Izquierdo -->
     <div class="hud-panel" id="main-hud-panel">
+        <!-- Handle de redimensionado -->
+        <div class="hud-resize-handle" id="hud-resize-handle"></div>
         <!-- Botón de colapso global -->
         <button class="hud-toggle-btn" id="hud-toggle-btn" onclick="toggleMainHud()" title="Colapsar panel lateral">
             <svg id="hud-toggle-icon" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg>
@@ -1389,9 +1427,15 @@
                 <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
                     <label for="kml-upload-input" style="display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(99, 102, 241, 0.15); border: 1px dashed var(--accent-indigo); border-radius: 12px; padding: 12px; cursor: pointer;" id="kml-upload-label">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-cyan);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                        <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">Cargar archivo KML</span>
+                        <span style="font-size: 12px; font-weight: 600; color: var(--text-main);">Cargar archivo KML (Solo Web)</span>
                     </label>
                     <input type="file" id="kml-upload-input" accept=".kml" style="display: none;" />
+
+                    <label for="kml-server-upload-input" style="display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(16, 185, 129, 0.12); border: 1px dashed rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 12px; cursor: pointer;" id="kml-server-upload-label">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #34d399;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        <span style="font-size: 12px; font-weight: 600; color: var(--text-main);" id="kml-server-upload-text">Sincronizar KML con Mando</span>
+                    </label>
+                    <input type="file" id="kml-server-upload-input" accept=".kml" style="display: none;" onchange="uploadKmlToServer(this)" />
                     
                     <!-- Lista de Capas Cargadas -->
                     <div id="loaded-kml-container" style="display: none; flex-direction: column; gap: 6px;"></div>
@@ -1440,6 +1484,109 @@
             </div>
         </div>
 
+        <!-- Elementos de Mapa (Sincronización DJI) -->
+        <div class="hud-section" id="section-map-elements">
+            <div class="hud-section-header" onclick="toggleSection(this)">
+                <div class="hud-section-title">Elementos de Mapa (DJI Sync)</div>
+                <svg class="collapse-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <div class="hud-section-content">
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+
+                    <!-- ── Formulario de Creación ── -->
+                    <div style="display: flex; flex-direction: column; gap: 6px; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border: 1px solid var(--panel-border);">
+                        <div>
+                            <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 2px;">Nombre del Elemento</label>
+                            <input type="text" id="sync-elem-name" value="Elemento Web" style="width: 100%; background: rgba(10,11,16,0.6); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 4px 8px; font-size: 11px; outline: none;" />
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                            <div>
+                                <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 2px;">Color (DJI)</label>
+                                <select id="sync-elem-color" style="width: 100%; background: rgba(10,11,16,0.6); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 4px; font-size: 11px; outline: none; cursor: pointer;">
+                                    <option value="BLUE" selected>Azul</option>
+                                    <option value="GREEN">Verde</option>
+                                    <option value="YELLOW">Amarillo</option>
+                                    <option value="ORANGE">Naranja</option>
+                                    <option value="RED">Rojo</option>
+                                    <option value="PURPLE">Morado</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 2px;">Geometría</label>
+                                <select id="sync-elem-type" onchange="onChangeGeomType()" style="width: 100%; background: rgba(10,11,16,0.6); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 4px; font-size: 11px; outline: none; cursor: pointer;">
+                                    <option value="pin">Punto / Pin</option>
+                                    <option value="circle">Círculo</option>
+                                    <option value="polyline">Línea / Ruta</option>
+                                    <option value="polygon">Polígono</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 2px;">Capa destino</label>
+                            <select id="layer-select" style="width: 100%; background: rgba(10,11,16,0.6); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 4px; font-size: 11px; outline: none; cursor: pointer;">
+                                <!-- poblado dinámicamente por populateLayerDropdown() -->
+                            </select>
+                        </div>
+                        <!-- Campo de radio, sólo visible para círculos -->
+                        <div id="circle-radius-row" style="display:none;">
+                            <label style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 2px;">Radio (metros)</label>
+                            <input type="number" id="circle-radius" value="200" min="10" max="50000" step="10"
+                                style="width: 100%; background: rgba(10,11,16,0.6); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 4px 8px; font-size: 11px; outline: none;" />
+                        </div>
+
+                        <div id="sync-draw-status" style="font-size: 10px; color: var(--accent-cyan); margin: 2px 0; text-align: center;">
+                            Haz clic en Dibujar y marca el elemento en el mapa.
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+                            <button class="layer-btn" id="btn-sync-draw" onclick="toggleSyncDrawingMode()" style="color: var(--accent-cyan); display: flex; align-items: center; justify-content: center; font-size: 11px; padding: 5px; cursor: pointer;">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                                Dibujar
+                            </button>
+                            <button class="layer-btn" onclick="clearSyncDrawing()" style="color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 11px; padding: 5px; cursor: pointer;">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                Limpiar
+                            </button>
+                            <button class="layer-btn" onclick="fetchMapElements()" style="color: var(--accent-success); display: flex; align-items: center; justify-content: center; font-size: 11px; padding: 5px; cursor: pointer;">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                Recargar
+                            </button>
+                        </div>
+                    </div>
+
+                    <button class="layer-btn active" onclick="sendCustomSyncElement()" style="color: #fff; display: flex; align-items: center; justify-content: center; width: 100%; border: 1px solid var(--accent-indigo); background: var(--accent-indigo); cursor: pointer; padding: 8px 12px; border-radius: 8px; font-weight: 600;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:6px;"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        Enviar al Mando DJI
+                    </button>
+
+                    <!-- ── Gestión de Elementos Guardados ── -->
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted);">Elementos Guardados</span>
+                            <span id="elem-count-badge" style="background: rgba(99,102,241,0.25); color: var(--accent-indigo); font-size: 9px; padding: 1px 7px; border-radius: 10px; font-weight: 700; min-width: 18px; text-align: center;">0</span>
+                        </div>
+
+                        <!-- Lista scrollable de elementos -->
+                        <div id="saved-elements-list" style="max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; padding-right: 2px;">
+                            <div style="font-size: 10px; color: var(--text-muted); text-align: center; padding: 10px 0;">Sin elementos guardados</div>
+                        </div>
+
+                        <!-- Botones de acción global -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                            <button onclick="exportAllKml()" style="display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); color: #34d399; border-radius: 7px; padding: 6px 4px; font-size: 10px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.2s;" onmouseover="this.style.background='rgba(16,185,129,0.25)'" onmouseout="this.style.background='rgba(16,185,129,0.12)'">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                Exportar KML
+                            </button>
+                            <button onclick="deleteAllElements()" style="display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.30); color: #f87171; border-radius: 7px; padding: 6px 4px; font-size: 10px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.2s;" onmouseover="this.style.background='rgba(239,68,68,0.22)'" onmouseout="this.style.background='rgba(239,68,68,0.10)'">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                Borrar Todo
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
         <!-- Registro de Eventos -->
         <div class="hud-section" id="section-logs">
             <div class="hud-section-header" onclick="toggleSection(this)">
@@ -1461,6 +1608,7 @@
             <span class="status-dot"></span>
             <span id="server-status-text">Conectando...</span>
         </div>
+        <span id="rc-ws-badge" style="margin-left:8px;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;background:var(--accent-warn,#FFBB00);color:#000;">RC: comprobando…</span>
     </div>
 
     <!-- Selector de Capas Base -->
@@ -2015,6 +2163,17 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <script>
+        // Workspace ID leído desde appsettings.json vía /api/dji/Config.
+        // Se actualiza al cargar la página; las llamadas posteriores usan el valor dinámico.
+        let WORKSPACE_ID = "e3dea0f5-37f2-4d79-ae58-490af3228069";
+        (async () => {
+            try {
+                const cfg = await fetch('/api/dji/Config').then(r => r.json());
+                if (cfg && (cfg.WorkspaceId || cfg.workspaceId))
+                    WORKSPACE_ID = cfg.WorkspaceId || cfg.workspaceId;
+            } catch (_) { /* mantener valor por defecto */ }
+        })();
+
         // SN del gateway cuyo stream DJI está activo ahora mismo (para el botón PARAR)
         var _activeDjiGatewaySn = '';
 
@@ -2644,6 +2803,22 @@
             }
         }
  
+        async function pollRcStatus() {
+            try {
+                const res  = await fetch(`/api/web-map/workspaces/${WORKSPACE_ID}/ws-status`, { cache: 'no-store' });
+                const data = await res.json();
+                const count = data.connected_rc ?? 0;
+                const badge = document.getElementById('rc-ws-badge');
+                if (badge) {
+                    badge.textContent = count > 0 ? `RC: ${count} conectado${count > 1 ? 's' : ''}` : 'RC: sin mando';
+                    badge.style.background = count > 0 ? 'var(--accent-success, #19BE6B)' : 'var(--accent-warn, #FFBB00)';
+                    badge.style.color = count > 0 ? '#fff' : '#000';
+                }
+            } catch (e) {
+                console.warn('[pollRcStatus] Error:', e);
+            }
+        }
+
         async function pollGateways() {
             try {
                 const res      = await fetch('/api/admin/gateways', { cache: 'no-store' });
@@ -2955,6 +3130,216 @@
         }
         connection.on("UpdateDroneStatus", handleUpdateDroneStatus);
 
+        // ================= LÓGICA DE ELEMENTOS DEL MAPA (DJI MAP ELEMENTS) =================
+        var mapElements = {};
+        var mapElementsData = {};  // id → elemento completo (para el panel de gestión)
+
+        function getValidCssColor(djiColor) {
+            if (!djiColor) return "#2D8CF0";
+            const clean = djiColor.toString().toUpperCase().trim();
+            // Paleta estándar DJI Pilot 2 (6 colores fijos mapeados a colores estéticos en el navegador web)
+            const colorMap = {
+                "RED":      "#E23C39",
+                "BLUE":     "#2D8CF0",
+                "YELLOW":   "#FFBB00",
+                "GREEN":    "#19BE6B",
+                "ORANGE":   "#F97316", // Semánticamente naranja para DJI, visualmente naranja en la web
+                "PURPLE":   "#8B5CF6", // Semánticamente morado para DJI, visualmente morado en la web
+                "BLACK":    "#212121", // Compatibilidad legado
+                
+                // Valores 0x como los envía y recibe el firmware DJI (mapeados a la visualización web correcta)
+                "0X2D8CF0": "#2D8CF0", // BLUE
+                "0X19BE6B": "#19BE6B", // GREEN
+                "0XFFBB00": "#FFBB00", // YELLOW
+                "0XB620E0": "#F97316", // ORANGE (se pinta naranja en la web)
+                "0XE23C39": "#E23C39", // RED
+                "0X212121": "#8B5CF6"  // PURPLE (se pinta morado en la web)
+            };
+            if (colorMap[clean]) return colorMap[clean];
+            if (clean.startsWith("#")) {
+                // Traducir colores KML o estilos CSS a la paleta correcta
+                const upper = clean.toUpperCase();
+                if (upper === "#E23C39") return "#E23C39";
+                if (upper === "#2D8CF0") return "#2D8CF0";
+                if (upper === "#FFBB00") return "#FFBB00";
+                if (upper === "#19BE6B") return "#19BE6B";
+                if (upper === "#B620E0" || upper === "#F97316") return "#F97316"; // Orange
+                if (upper === "#212121" || upper === "#8B5CF6") return "#8B5CF6"; // Purple
+                return clean;
+            }
+            if (clean.startsWith("0X")) return "#" + clean.slice(2);
+            return djiColor;
+        }
+
+        /**
+         * Crea un icono Leaflet en forma de rombo (◆) para representar puntos del mapa,
+         * igual que DJI Pilot 2 representa los pines en el mando.
+         * El rombo es un SVG de 20×20 px rotado 45°, con relleno del color del elemento
+         * y borde blanco para contraste sobre cualquier fondo de mapa.
+         */
+        function createDiamondIcon(color) {
+            const size   = 20;
+            const half   = size / 2;
+            const border = 2.5;
+            // Polígono cuadrado centrado, rotado 45° → rombo
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+                <rect x="${border}" y="${border}"
+                      width="${size - border * 2}" height="${size - border * 2}"
+                      rx="1.5"
+                      fill="${color}"
+                      stroke="#ffffff"
+                      stroke-width="${border}"
+                      transform="rotate(45 ${half} ${half})"/>
+            </svg>`;
+            return L.divIcon({
+                html:        svg,
+                className:   '',          // sin clase por defecto de Leaflet (evita fondo blanco)
+                iconSize:    [size, size],
+                iconAnchor:  [half, half] // centrar sobre la coordenada exacta
+            });
+        }
+
+        function drawMapElement(element) {
+            if (!element || !element.id || !element.resource || !element.resource.content) return;
+            
+            // Eliminar si ya existe
+            if (mapElements[element.id]) {
+                map.removeLayer(mapElements[element.id]);
+                delete mapElements[element.id];
+            }
+
+            const content = element.resource.content;
+            if (!content.geometry || !content.geometry.coordinates) return;
+
+            const color = getValidCssColor(content.properties?.color);
+
+            let layer;
+
+            // Formato oficial DJI Cloud API para círculos (fuente: Cloud-API-Demo-Web/src/utils/genjson.ts):
+            //   geometry.type    = "Circle"   (string literal, no es GeoJSON estándar)
+            //   geometry.radius  = <metros>   (en geometry, NO en properties)
+            //   geometry.coordinates = [lon, lat, alt]
+            //
+            // Nótese: properties.radius NO existe en círculos DJI. El radius va en geometry.
+            const isCircle = content.geometry?.type === "Circle";
+            const radiusM  = isCircle ? (content.geometry.radius ?? 100) : 0;
+
+            if (isCircle) {
+                const coords = content.geometry.coordinates;
+                const latlng = [coords[1], coords[0]];
+                layer = L.circle(latlng, {
+                    radius:      Number(radiusM),
+                    color:       color,
+                    weight:      3,
+                    opacity:     0.9,
+                    fillColor:   color,
+                    fillOpacity: 0.15,
+                    dashArray:   '6 4'
+                }).addTo(map);
+            } else {
+                layer = L.geoJSON(content, {
+                    style: function() {
+                        return {
+                            color:       color,
+                            weight:      4,
+                            opacity:     0.85,
+                            fillColor:   color,
+                            fillOpacity: 0.25
+                        };
+                    },
+                    pointToLayer: function(feature, latlng) {
+                        return L.marker(latlng, { icon: createDiamondIcon(color) });
+                    }
+                }).addTo(map);
+            }
+
+            if (element.name) {
+                layer.bindTooltip(element.name, {
+                    permanent: false,
+                    direction: 'top',
+                    className: 'kml-tooltip'
+                });
+            }
+
+            mapElements[element.id] = layer;
+
+            // Guardar datos completos para el panel de gestión
+            // group_id puede venir en el campo propio (fetchMapElements lo asigna)
+            // o en payload.data.group_id (SignalR). Normalizar _groupId como copia segura.
+            if (element.group_id) element._groupId = element.group_id;
+            mapElementsData[element.id] = element;
+            renderElementsList();
+        }
+
+        async function fetchMapElements(workspaceId = WORKSPACE_ID) {
+            try {
+                const res = await fetch(`/map/api/v1/workspaces/${workspaceId}/element-groups`, { cache: 'no-store' });
+                if (!res.ok) return;
+                const responseData = await res.json();
+                if (responseData.code === 0 && responseData.data) {
+                    // Limpiar antiguos
+                    for (const id in mapElements) {
+                        map.removeLayer(mapElements[id]);
+                    }
+                    mapElements = {};
+                    mapElementsData = {};
+
+                    responseData.data.forEach(group => {
+                        if (group.elements) {
+                            group.elements.forEach(element => {
+                                element.group_id = element.group_id || group.id;
+                                drawMapElement(element);
+                            });
+                        }
+                    });
+                    populateLayerDropdown(responseData.data);
+                    addLog("Elementos del mapa sincronizados con éxito.", 'system');
+                }
+            } catch (err) {
+                console.error("Error al obtener elementos del mapa:", err);
+            }
+        }
+
+        connection.on("MapElementCreate", function(payload) {
+            console.log('[SignalR] MapElementCreate:', JSON.stringify(payload));
+            if (payload && payload.data) {
+                drawMapElement(payload.data);
+                addLog(`🗺️ [RC→Web] Nuevo elemento: "${payload.data.name || payload.data.id}"`, 'success');
+            } else if (payload && !payload.data) {
+                // payload llega sin .data → intenta usar el payload directamente (elemento plano)
+                console.warn('[SignalR] MapElementCreate: payload sin .data, intentando como elemento directo:', payload);
+                if (payload.id && payload.resource) {
+                    drawMapElement(payload);
+                    addLog(`🗺️ [RC→Web] Nuevo elemento (plano): "${payload.name || payload.id}"`, 'success');
+                }
+            } else {
+                console.warn('[SignalR] MapElementCreate payload nulo:', payload);
+                addLog('⚠️ [SignalR] MapElementCreate recibido sin datos válidos.', 'warn');
+            }
+        });
+
+        connection.on("MapElementUpdate", function(payload) {
+            console.log('[SignalR] MapElementUpdate recibido:', payload);
+            if (payload && payload.data) {
+                drawMapElement(payload.data);
+                addLog(`🔄 Elemento modificado: ${payload.data.name || payload.data.id}`, 'system');
+            }
+        });
+
+        connection.on("MapElementDelete", function(payload) {
+            console.log('[SignalR] MapElementDelete recibido:', payload);
+            if (payload && payload.data && payload.data.id) {
+                const elementId = payload.data.id;
+                if (mapElements[elementId]) {
+                    map.removeLayer(mapElements[elementId]);
+                    delete mapElements[elementId];
+                }
+                delete mapElementsData[elementId];
+                renderElementsList();
+                addLog(`🗑️ Elemento borrado: ${elementId}`, 'system');
+            }
+        });
+
         // ── Evento de posición GPS ────────────────────────────────────────────────
         // elevation = AGL (campo "elevation" DJI, relativo al punto de despegue)
         // altitude  = ASL (campo "height"    DJI, relativo al elipsoide terrestre)
@@ -3087,10 +3472,26 @@
                 // Centrar mapa en el primer dron detectado
                 map.panTo(newPos);
             } else {
-                // Si el dron ya está registrado, actualizamos posición, icono y popup
+                // Si el dron ya está registrado, actualizamos posición e icono in-place
+                // (sin llamar a setIcon — evita destruir/recrear el DOM y que parpadeen las etiquetas)
                 var marker = droneMarkers[sn];
                 marker.setLatLng(newPos);
-                marker.setIcon(customIcon);
+                const _el = marker.getElement();
+                if (_el) {
+                    const _bubble = _el.querySelector('.drone-altitude-bubble');
+                    if (_bubble) {
+                        _bubble.innerHTML = `${altDisplay.toFixed(0)}m <span style="font-size:7px;opacity:0.85;letter-spacing:0.3px;">${altRefLabel()}</span>`;
+                        _bubble.style.backgroundColor = droneColor;
+                    }
+                    const _dir = _el.querySelector('.drone-icon-direction');
+                    if (_dir) _dir.style.transform = `rotate(${heading}deg)`;
+                    const _svgPath = _el.querySelector('path');
+                    if (_svgPath) { _svgPath.setAttribute('fill', droneColor); }
+                    const _ring = _el.querySelector('.pulse-ring');
+                    if (_ring) _ring.style.borderColor = droneColor;
+                } else {
+                    marker.setIcon(customIcon);
+                }
                 marker.setPopupContent(popupHtml);
             }
 
@@ -3148,50 +3549,24 @@
             }
 
             // Crear o actualizar la tarjeta del dron en la lista del HUD lateral
+            // La estructura se crea UNA SOLA VEZ; los valores dinámicos se actualizan
+            // in-place para evitar que el navegador re-renderice fuentes y parpadee.
             var droneRow = document.getElementById(`drone-row-${sn}`);
-            if (!droneRow) {
-                droneRow = document.createElement('div');
-                droneRow.id = `drone-row-${sn}`;
-                droneRow.className = 'telemetry-card';
-                droneRow.style.cursor = 'pointer';
-                droneRow.style.transition = 'all 0.2s ease';
-                droneRow.onclick = function() {
-                    selectDrone(sn);
-                    if (droneMarkers[sn]) { map.panTo(droneMarkers[sn].getLatLng()); droneMarkers[sn].openPopup(); }
-                    addLog(`Dron seleccionado: ${sn}`, 'system');
-                };
-
-                // Efectos hover visuales
-                droneRow.onmouseover = function() {
-                    this.style.borderColor = getDroneColor(sn).core;
-                    this.style.boxShadow = `0 0 8px ${getDroneColor(sn).glow}`;
-                };
-                droneRow.onmouseout = function() {
-                    this.style.borderColor = 'rgba(255, 255, 255, 0.04)';
-                    this.style.boxShadow = 'none';
-                };
-
-                document.getElementById('active-drones-container').appendChild(droneRow);
-            }
-
-            // Inyectar HTML actualizado con telemetría detallada para este dron
             const colorScheme = getDroneColor(sn);
             let batteryCardColor = '#10b981';
             if (batteryPercent < 20) batteryCardColor = '#ef4444';
             else if (batteryPercent < 50) batteryCardColor = '#f59e0b';
 
-            // Obtener datos de GPS del caché de estado (más fiables que el conteo de satélites solo)
-            const posSt    = droneStatusCache[sn];
+            const posSt       = droneStatusCache[sn];
             const posGpsFixed = posSt ? posSt.gpsFixed : 0;
             const posGpsSats  = posSt ? posSt.gpsSats  : gpsNumber;
             const posMode     = posSt ? posSt.mode      : -1;
-            const gnssClr2  = posGpsFixed > 0 ? 'var(--accent-success)' : 'var(--accent-danger)';
-            const gnssLbl2  = posGpsFixed > 0
+            const gnssClr2    = posGpsFixed > 0 ? 'var(--accent-success)' : 'var(--accent-danger)';
+            const gnssLbl2    = posGpsFixed > 0
                 ? `✓ GNSS Fix (${posGpsSats} sat)`
                 : `✗ Sin Fix GNSS (${posGpsSats > 0 ? posGpsSats : gpsNumber} sat)`;
 
-            // Chip de gateway y botones RTH (solo si el gateway del dron es conocido)
-            const posGwSn  = aircraftToGateway[sn];
+            const posGwSn   = aircraftToGateway[sn];
             const posGwInfo = posGwSn ? gatewayData[posGwSn] : null;
             const posGwChip = posGwInfo ? `
                 <div class="gw-chip" style="display:flex;align-items:center;gap:5px;padding:2px 7px;background:rgba(99,102,241,0.1);border-radius:4px;border-left:2px solid ${posGwInfo.isOnline ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.5)'};margin-bottom:3px;">
@@ -3213,47 +3588,101 @@
                         title="Cancelar RTH">✕ RTH</button>
                 </div>` : '';
 
-            droneRow.innerHTML = `
-                <div style="display: flex; flex-direction: column; width: 100%; gap: 5px;">
-                    ${posGwChip}
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="font-weight: 700; color: ${colorScheme.core}; font-size: 13px;">🚁 ${sn}</span>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="font-family:'JetBrains Mono',monospace; font-weight:700; color:${batteryCardColor}; font-size:11px; display:inline-flex; align-items:center; gap:3px;">
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg);"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"></rect><line x1="23" y1="11" x2="23" y2="13"></line></svg>
-                                ${batteryPercent}%
-                            </span>
-                            <span class="status-badge connected" style="padding: 2px 8px; font-size: 9px;"><span class="status-dot"></span>Activo</span>
+            if (!droneRow) {
+                // ── Crear estructura una sola vez ──────────────────────────────
+                droneRow = document.createElement('div');
+                droneRow.id = `drone-row-${sn}`;
+                droneRow.className = 'telemetry-card';
+                droneRow.style.cursor = 'pointer';
+                droneRow.style.transition = 'all 0.2s ease';
+                droneRow.onclick = function() {
+                    selectDrone(sn);
+                    if (droneMarkers[sn]) { map.panTo(droneMarkers[sn].getLatLng()); droneMarkers[sn].openPopup(); }
+                    addLog(`Dron seleccionado: ${sn}`, 'system');
+                };
+                droneRow.onmouseover = function() {
+                    this.style.borderColor = getDroneColor(sn).core;
+                    this.style.boxShadow = `0 0 8px ${getDroneColor(sn).glow}`;
+                };
+                droneRow.onmouseout = function() {
+                    this.style.borderColor = 'rgba(255,255,255,0.04)';
+                    this.style.boxShadow = 'none';
+                };
+
+                droneRow.innerHTML = `
+                    <div style="display:flex;flex-direction:column;width:100%;gap:5px;">
+                        <div id="dc-${sn}-gwchip"></div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <span style="font-weight:700;color:${colorScheme.core};font-size:13px;">🚁 ${sn}</span>
+                            <div style="display:flex;align-items:center;gap:6px;">
+                                <span id="dc-${sn}-bat" style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:11px;display:inline-flex;align-items:center;gap:3px;">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg);"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"></rect><line x1="23" y1="11" x2="23" y2="13"></line></svg>
+                                    <span id="dc-${sn}-bat-pct">--</span>%
+                                </span>
+                                <span class="status-badge connected" style="padding:2px 8px;font-size:9px;"><span class="status-dot"></span>Activo</span>
+                            </div>
                         </div>
-                    </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                        <span style="font-size:10px;color:${gnssClr2};font-family:'JetBrains Mono',monospace;font-weight:700;">${gnssLbl2}</span>
-                        <span style="font-size:10px;color:var(--accent-indigo);font-family:'JetBrains Mono',monospace;">${posMode >= 0 ? modeName(posMode) : ''}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; font-size: 11px; color: var(--text-muted); gap: 8px;">
-                        <div style="display: flex; flex-direction: column; gap: 2px;">
-                            <div>
-                                <span>Alt <span style="font-size:8px;color:var(--accent-cyan);font-weight:700;">${altRefLabel()}</span>: <strong style="color: var(--text-main);">${altDisplay.toFixed(1)}m</strong></span>
-                                <span style="margin-left: 6px;">Rumbo: <strong style="color: var(--text-main);">${heading.toFixed(0)}°</strong></span>
-                            </div>
-                            <div>
-                                <span>Gimbal: <strong style="color: var(--text-main);">${gimbalPitch.toFixed(0)}°</strong></span>
-                                <span style="margin-left: 6px;">Zoom: <strong style="color: var(--text-main);">${zoomFactor.toFixed(1)}x</strong></span>
-                            </div>
-                            <div>
-                                <span>Enlace: <strong style="color: var(--text-main);">${sdrFreqBand ? sdrFreqBand.toFixed(1) + ' GHz' : 'S/D'}</strong></span>
-                            </div>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <span id="dc-${sn}-gnss" style="font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:700;"></span>
+                            <span id="dc-${sn}-mode" style="font-size:10px;color:var(--accent-indigo);font-family:'JetBrains Mono',monospace;"></span>
                         </div>
-                        <button onclick="event.stopPropagation(); clearDronePath('${sn}')" 
-                                style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; border-radius: 6px; padding: 2px 6px; font-size: 9px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 600; transition: all 0.2s; flex-shrink:0;"
-                                onmouseover="this.style.background='var(--accent-danger)'; this.style.color='#fff'"
-                                onmouseout="this.style.background='rgba(239, 68, 68, 0.15)'; this.style.color='#f87171'">
-                            Limpiar
-                        </button>
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;font-size:11px;color:var(--text-muted);gap:8px;">
+                            <div style="display:flex;flex-direction:column;gap:2px;">
+                                <div>
+                                    <span>Alt <span id="dc-${sn}-altlbl" style="font-size:8px;color:var(--accent-cyan);font-weight:700;"></span>: <strong id="dc-${sn}-alt" style="color:var(--text-main);"></strong></span>
+                                    <span style="margin-left:6px;">Rumbo: <strong id="dc-${sn}-hdg" style="color:var(--text-main);"></strong></span>
+                                </div>
+                                <div>
+                                    <span>Gimbal: <strong id="dc-${sn}-gbl" style="color:var(--text-main);"></strong></span>
+                                    <span style="margin-left:6px;">Zoom: <strong id="dc-${sn}-zoom" style="color:var(--text-main);"></strong></span>
+                                </div>
+                                <div>
+                                    <span>Enlace: <strong id="dc-${sn}-link" style="color:var(--text-main);"></strong></span>
+                                </div>
+                            </div>
+                            <button onclick="event.stopPropagation(); clearDronePath('${sn}')"
+                                    style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#f87171;border-radius:6px;padding:2px 6px;font-size:9px;cursor:pointer;font-family:'Outfit',sans-serif;font-weight:600;transition:all 0.2s;flex-shrink:0;"
+                                    onmouseover="this.style.background='var(--accent-danger)';this.style.color='#fff'"
+                                    onmouseout="this.style.background='rgba(239,68,68,0.15)';this.style.color='#f87171'">
+                                Limpiar
+                            </button>
+                        </div>
+                        <div id="dc-${sn}-rth"></div>
                     </div>
-                    ${posRthHtml}
-                </div>
-            `;
+                `;
+                document.getElementById('active-drones-container').appendChild(droneRow);
+            }
+
+            // ── Actualizar campos dinámicos in-place (sin reconstruir DOM) ──────
+            const _dcBat  = document.getElementById(`dc-${sn}-bat`);
+            const _dcBatP = document.getElementById(`dc-${sn}-bat-pct`);
+            if (_dcBat)  _dcBat.style.color = batteryCardColor;
+            if (_dcBatP) _dcBatP.textContent = batteryPercent;
+
+            const _dcGnss = document.getElementById(`dc-${sn}-gnss`);
+            if (_dcGnss) { _dcGnss.textContent = gnssLbl2; _dcGnss.style.color = gnssClr2; }
+
+            const _dcMode = document.getElementById(`dc-${sn}-mode`);
+            if (_dcMode) _dcMode.textContent = posMode >= 0 ? modeName(posMode) : '';
+
+            const _dcAltL = document.getElementById(`dc-${sn}-altlbl`);
+            if (_dcAltL) _dcAltL.textContent = altRefLabel();
+            const _dcAlt  = document.getElementById(`dc-${sn}-alt`);
+            if (_dcAlt)  _dcAlt.textContent = `${altDisplay.toFixed(1)}m`;
+            const _dcHdg  = document.getElementById(`dc-${sn}-hdg`);
+            if (_dcHdg)  _dcHdg.textContent = `${heading.toFixed(0)}°`;
+            const _dcGbl  = document.getElementById(`dc-${sn}-gbl`);
+            if (_dcGbl)  _dcGbl.textContent = `${gimbalPitch.toFixed(0)}°`;
+            const _dcZoom = document.getElementById(`dc-${sn}-zoom`);
+            if (_dcZoom) _dcZoom.textContent = `${zoomFactor.toFixed(1)}x`;
+            const _dcLink = document.getElementById(`dc-${sn}-link`);
+            if (_dcLink) _dcLink.textContent = sdrFreqBand ? `${sdrFreqBand.toFixed(1)} GHz` : 'S/D';
+
+            // Gateway chip y RTH: innerHTML solo en su sub-div (cambio infrecuente)
+            const _dcGwc = document.getElementById(`dc-${sn}-gwchip`);
+            if (_dcGwc) _dcGwc.innerHTML = posGwChip;
+            const _dcRth = document.getElementById(`dc-${sn}-rth`);
+            if (_dcRth) _dcRth.innerHTML = posRthHtml;
 
             addLog(`Dron ${sn} → Lat ${latitude.toFixed(4)}, Lon ${longitude.toFixed(4)}, Alt ${altitude.toFixed(1)}m, Rumbo ${heading.toFixed(0)}°, Pitch ${gimbalPitch.toFixed(0)}°`, 'telemetry');
         }
@@ -3321,6 +3750,7 @@
             addLog("SignalR reconectado. Restaurando estado del mapa…", 'system');
             pollGateways();
             syncActiveDevices(); // restaura marcadores, badges y caché desde REST
+            fetchMapElements();  // restaura elementos de dibujo del mapa
         });
 
         connection.onclose((error) => {
@@ -3328,6 +3758,10 @@
             serverStatusText.textContent = 'Desconectado';
             addLog("Conexión con SignalR cerrada.", 'system');
         });
+
+        // Carga anticipada de elementos del mapa vía REST puro (sin esperar a SignalR).
+        // Garantiza que el dropdown de capas esté poblado antes de cualquier creación.
+        fetchMapElements().catch(e => console.warn('[Map] Carga anticipada de elementos falló:', e));
 
         // Iniciar Conexión
         connection.start()
@@ -3338,8 +3772,12 @@
                 fetchTrajectories(); // Cargar el historial de trayectorias
                 pollGateways();      // Primera carga inmediata de gateways
                 syncActiveDevices(); // Primera carga inmediata de drones
-                setInterval(pollGateways, 5000); // Actualizar cada 5s
+                fetchMapElements();  // Recargar tras conectar SignalR (actualiza si cambió algo)
+                setInterval(pollGateways, 5000);      // Actualizar cada 5s
                 setInterval(syncActiveDevices, 5000); // Sincronizar drones cada 5s
+                setInterval(fetchMapElements, 12000); // Fallback: re-sincronizar elementos cada 12s
+                pollRcStatus();              // Primera comprobación inmediata de mandos RC
+                setInterval(pollRcStatus, 8000); // Comprobar mandos RC cada 8s
                 wrapDrcTracking();   // Activar rastreo de frecuencia DRC
             })
             .catch(err => {
@@ -3661,9 +4099,9 @@
                 document.onmousemove = function(e) {
                     ox = mx - e.clientX; oy = my - e.clientY;
                     mx = e.clientX; my = e.clientY;
-                    panel.style.top  = (panel.offsetTop  - oy) + 'px';
+                    panel.style.top  = clampPanel(panel.offsetTop  - oy, panel.offsetHeight, 'y') + 'px';
                     panel.style.right = 'auto';
-                    panel.style.left = (panel.offsetLeft - ox) + 'px';
+                    panel.style.left = clampPanel(panel.offsetLeft - ox, panel.offsetWidth,  'x') + 'px';
                 };
             };
         })('drc-panel', 'drc-panel-header');
@@ -3870,6 +4308,51 @@
             reader.readAsText(file);
             kmlInput.value = ''; // Limpiar selección
         });
+
+        async function uploadKmlToServer(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const textEl = document.getElementById('kml-server-upload-text');
+            const labelEl = document.getElementById('kml-server-upload-label');
+            const originalText = textEl.textContent;
+            
+            // UI Feedback
+            textEl.textContent = 'Sincronizando...';
+            labelEl.style.background = 'rgba(16, 185, 129, 0.25)';
+            labelEl.style.borderColor = 'rgba(16, 185, 129, 0.6)';
+
+            const fd = new FormData();
+            fd.append('file', file);
+            
+            const groupId = document.getElementById('layer-select').value;
+            if (groupId) {
+                fd.append('group_id', groupId);
+            }
+
+            try {
+                const res = await fetch(`/api/web-map/workspaces/${WORKSPACE_ID}/elements/import-kml`, {
+                    method: 'POST',
+                    body: fd
+                });
+                const d = await res.json();
+                if (res.ok && d.success) {
+                    addLog(`✅ KML importado: ${d.imported_count} elementos sincronizados con el mando.`, 'success');
+                    // Recargar elementos para verlos en el mapa web
+                    await fetchMapElements();
+                } else {
+                    addLog(`❌ Error al importar KML: ${d.error || 'error desconocido'}`, 'error');
+                }
+            } catch (err) {
+                addLog(`❌ Error de red al importar KML: ${err.message}`, 'error');
+            } finally {
+                // Restore UI
+                textEl.textContent = originalText;
+                labelEl.style.background = 'rgba(16, 185, 129, 0.12)';
+                labelEl.style.borderColor = 'rgba(16, 185, 129, 0.35)';
+                input.value = ''; // Limpiar selección
+            }
+        }
 
         function updateKmlList() {
             kmlContainer.innerHTML = '';
@@ -4137,6 +4620,32 @@
         }
 
         // ================= LÓGICA DE MENÚS Y PANEL LATERAL COLAPSABLES =================
+        // ── Resize del panel HUD ──────────────────────────────────────────────
+        (function initHudResize() {
+            const panel  = document.getElementById('main-hud-panel');
+            const handle = document.getElementById('hud-resize-handle');
+            let resizing = false, startX, startW;
+            handle.addEventListener('mousedown', e => {
+                resizing = true; startX = e.clientX; startW = panel.offsetWidth;
+                handle.classList.add('resizing');
+                document.body.style.cursor = 'ew-resize';
+                document.body.style.userSelect = 'none';
+                e.preventDefault();
+            });
+            document.addEventListener('mousemove', e => {
+                if (!resizing) return;
+                const newW = Math.min(520, Math.max(240, startW + (e.clientX - startX)));
+                panel.style.width = newW + 'px';
+            });
+            document.addEventListener('mouseup', () => {
+                if (!resizing) return;
+                resizing = false;
+                handle.classList.remove('resizing');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            });
+        })();
+
         function toggleMainHud() {
             const hudPanel = document.getElementById('main-hud-panel');
             hudPanel.classList.toggle('collapsed');
@@ -4784,8 +5293,8 @@
             });
             document.addEventListener('mousemove', e => {
                 if (!dragging) return;
-                panel.style.left = (ox + e.clientX - sx) + 'px';
-                panel.style.top  = (oy + e.clientY - sy) + 'px';
+                panel.style.left = clampPanel(ox + e.clientX - sx, panel.offsetWidth, 'x') + 'px';
+                panel.style.top  = clampPanel(oy + e.clientY - sy, panel.offsetHeight, 'y') + 'px';
             });
             document.addEventListener('mouseup', () => { dragging = false; });
             // Init color picker on load
@@ -5049,8 +5558,8 @@
             });
             document.addEventListener('mousemove', e => {
                 if (!dragging) return;
-                panel.style.left = (ox + e.clientX - sx) + 'px';
-                panel.style.top  = (oy + e.clientY - sy) + 'px';
+                panel.style.left = clampPanel(ox + e.clientX - sx, panel.offsetWidth, 'x') + 'px';
+                panel.style.top  = clampPanel(oy + e.clientY - sy, panel.offsetHeight, 'y') + 'px';
             });
             document.addEventListener('mouseup', () => { dragging = false; });
         })();
@@ -5068,6 +5577,33 @@
 
             // Forzar actualización del tamaño del mapa tras la animación
             setTimeout(() => { map.invalidateSize(); }, 400);
+        }
+
+        // ── Drag del panel de video ───────────────────────────────────────────
+
+        (function initVideoPanelDrag() {
+            const panel  = document.getElementById('video-panel');
+            const header = document.getElementById('video-panel-header');
+            let dragging = false, sx, sy, ox, oy;
+            header.addEventListener('mousedown', e => {
+                // Ignorar clicks en controles interactivos dentro del header
+                if (e.target.closest('button, select, input')) return;
+                dragging = true; sx = e.clientX; sy = e.clientY;
+                const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
+                panel.style.right = 'auto'; e.preventDefault();
+            });
+            document.addEventListener('mousemove', e => {
+                if (!dragging) return;
+                panel.style.left = clampPanel(ox + e.clientX - sx, panel.offsetWidth, 'x') + 'px';
+                panel.style.top  = clampPanel(oy + e.clientY - sy, panel.offsetHeight, 'y') + 'px';
+            });
+            document.addEventListener('mouseup', () => { dragging = false; });
+        })();
+
+        // ── Utilidad: mantener paneles dentro del viewport ─────────────────────
+        function clampPanel(val, size, axis) {
+            const max = axis === 'x' ? window.innerWidth  - size : window.innerHeight - size;
+            return Math.max(0, Math.min(val, Math.max(0, max)));
         }
 
         // ================= PANEL DE VIDEO / KLV (MISB ST 0601) =================
@@ -6142,4 +6678,589 @@
             loadVideoList();
         }
 
-        // ─── Tab "Archivo KLV" ─────�
+        // ─── Tab "Archivo KLV" ────────────────────────────────────────────────
+
+        async function loadKlvList() {
+            const res   = await fetch('/api/media/klv');
+            const files = await res.json();
+            const list  = document.getElementById('klv-file-list');
+            if (!files.length) {
+                list.innerHTML = '<div style="font-size:11px; color:var(--text-muted); text-align:center; padding:6px;">Sin archivos KLV.</div>';
+                return;
+            }
+            list.innerHTML = files.map(f => `
+                <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(10,11,16,0.5); border:1px solid rgba(255,255,255,0.04); border-radius:8px; padding:5px 10px;">
+                    <span style="font-size:11px; font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px;" title="${f.name}">${f.name}</span>
+                    <div style="display:flex; gap:6px; flex-shrink:0;">
+                        <span style="font-size:9px; color:var(--text-muted); align-self:center;">${formatBytes(f.size)}</span>
+                        <button onclick="loadKlvFrames('${f.name}')" style="background:rgba(168,85,247,0.25); border:1px solid rgba(168,85,247,0.5); color:#d8b4fe; border-radius:6px; padding:2px 9px; font-size:10px; font-weight:700; cursor:pointer;">Ver</button>
+                        <button onclick="deleteKlv('${f.name}')" style="background:none; border:1px solid rgba(239,68,68,0.4); color:#f87171; border-radius:6px; padding:2px 7px; font-size:10px; cursor:pointer;">✕</button>
+                    </div>
+                </div>`).join('');
+        }
+
+        async function uploadKlvFile(input) {
+            const file = input.files[0]; if (!file) return;
+            const status = document.getElementById('klv-upload-status');
+            status.textContent = '↑ Subiendo...';
+            const fd = new FormData(); fd.append('file', file);
+            try {
+                const res = await fetch('/api/media/upload-klv', { method: 'POST', body: fd });
+                const d   = await res.json();
+                if (!res.ok) { status.textContent = `✗ ${d.error}`; return; }
+                status.textContent = `✓ ${d.frameCount} frames`;
+                addLog(`KLV subido: ${d.name} (${d.frameCount} frames)`, 'system');
+                await loadKlvList();
+            } catch { status.textContent = '✗ Error de red'; }
+            input.value = '';
+        }
+
+        async function loadKlvFrames(name) {
+            const status = document.getElementById('klv-upload-status');
+            status.textContent = '⟳ Cargando...';
+            try {
+                const res  = await fetch(`/api/media/klv/${encodeURIComponent(name)}?pageSize=5000`);
+                const data = await res.json();
+                klvFrames    = data.frames;
+                klvFrameIndex = 0;
+                const nav    = document.getElementById('klv-frame-nav');
+                const slider = document.getElementById('klv-frame-slider');
+                nav.style.display    = klvFrames.length > 0 ? 'flex' : 'none';
+                slider.max   = Math.max(0, klvFrames.length - 1);
+                slider.value = 0;
+                document.getElementById('klv-source-badge').textContent = `— ${name}`;
+                status.textContent = `✓ ${data.total} frames`;
+                addLog(`KLV cargado: ${name} (${data.total} frames)`, 'system');
+                if (klvFrames.length > 0) goToKlvFrame(0);
+            } catch { status.textContent = '✗ Error de red'; }
+        }
+
+        async function tryAutoLoadKlv(klvName) {
+            const res   = await fetch('/api/media/klv');
+            const files = await res.json();
+            if (files.some(f => f.name === klvName)) {
+                addLog(`KLV asociado encontrado: ${klvName}`, 'system');
+                loadKlvFrames(klvName);
+            }
+        }
+
+        function goToKlvFrame(idx) {
+            if (!klvFrames.length) return;
+            klvFrameIndex = Math.max(0, Math.min(klvFrames.length - 1, idx));
+            document.getElementById('klv-frame-slider').value = klvFrameIndex;
+            document.getElementById('klv-frame-label').textContent = `Frame ${klvFrameIndex + 1} / ${klvFrames.length}`;
+            currentKlvData = klvFrames[klvFrameIndex];
+            renderKlvTable(currentKlvData);
+        }
+
+        async function deleteKlv(name) {
+            if (!confirm(`¿Borrar ${name}?`)) return;
+            await fetch(`/api/media/klv/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            addLog(`KLV eliminado: ${name}`, 'system');
+            loadKlvList();
+        }
+
+        // ─── KLV en vivo (desde SignalR) ──────────────────────────────────────
+
+        function updateKlvDroneSelector() {
+            const select = document.getElementById('klv-drone-select');
+            if (!select) return;
+            const prev = select.value;
+            const sns  = Object.keys(droneMarkers);
+            select.innerHTML = '<option value="">-- Dron --</option>' +
+                sns.map(sn => `<option value="${sn}"${prev === sn ? ' selected' : ''}>Dron ${sn}</option>`).join('');
+            if (!select.value && sns.length > 0) select.value = sns[0];
+
+            // Auto-rellenar el campo SN del stream DJI si aún está vacío
+            const snInput = document.getElementById('dji-live-sn');
+            if (snInput && !snInput.value && select.value) {
+                snInput.value = select.value;
+            }
+        }
+
+        function calculateKlvData(sn, lat, lon, alt, gimbalPitch, gimbalRoll, gimbalYaw, heading, zoomFactor, footprint, fcLat, fcLon) {
+            const toRad = d => d * Math.PI / 180;
+            const toDeg = r => r * 180 / Math.PI;
+            const pitchAbs   = Math.abs(gimbalPitch);
+            const slantRange = pitchAbs > 1 ? alt / Math.sin(toRad(pitchAbs)) : alt * 15;
+            const R   = 6371000;
+            const dLt = toRad(footprint[1][0] - footprint[0][0]);
+            const dLn = toRad(footprint[1][1] - footprint[0][1]);
+            const a   = Math.sin(dLt / 2) ** 2 + Math.cos(toRad(footprint[0][0])) * Math.cos(toRad(footprint[1][0])) * Math.sin(dLn / 2) ** 2;
+            const targetWidth = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const hFov = toDeg(2 * Math.atan(Math.tan(toRad(37)) / zoomFactor));
+            const vFov = toDeg(2 * Math.atan(Math.tan(toRad(29.5)) / zoomFactor));
+            return {
+                tag2_timestamp: new Date().toISOString(),
+                tag5_platformHeading: +heading.toFixed(4), tag6_platformPitch: 0, tag7_platformRoll: 0,
+                tag10_designation: sn,
+                tag13_sensorLat: +lat.toFixed(7), tag14_sensorLon: +lon.toFixed(7), tag15_sensorAlt: +alt.toFixed(2),
+                tag16_hFov: +hFov.toFixed(4), tag17_vFov: +vFov.toFixed(4),
+                tag18_sensorAzimuth: +gimbalYaw.toFixed(4), tag19_sensorElevation: +gimbalPitch.toFixed(4), tag20_sensorRoll: +gimbalRoll.toFixed(4),
+                tag21_slantRange: +slantRange.toFixed(2), tag22_targetWidth: +targetWidth.toFixed(2),
+                tag23_frameCenterLat: +fcLat.toFixed(7), tag24_frameCenterLon: +fcLon.toFixed(7), tag25_frameCenterAlt: 0,
+                tag82_corner1Lat: +footprint[0][0].toFixed(7), tag83_corner1Lon: +footprint[0][1].toFixed(7),
+                tag84_corner2Lat: +footprint[1][0].toFixed(7), tag85_corner2Lon: +footprint[1][1].toFixed(7),
+                tag86_corner3Lat: +footprint[2][0].toFixed(7), tag87_corner3Lon: +footprint[2][1].toFixed(7),
+                tag88_corner4Lat: +footprint[3][0].toFixed(7), tag89_corner4Lon: +footprint[3][1].toFixed(7)
+            };
+        }
+
+        // ─── Renderizado de tabla KLV ─────────────────────────────────────────
+
+        function renderKlvTable(data) {
+            const table = document.getElementById('klv-table');
+            if (!table || !data) return;
+            const v = (val, unit) => val != null ? `${val}${unit ? ' ' + unit : ''}` : '—';
+            const f = (tag, name, value, full) => `
+                <div class="klv-field${full ? ' klv-full-row' : ''}">
+                    <div class="klv-field-meta">
+                        <span class="klv-tag">TAG ${String(tag).padStart(3, '0')}</span>
+                        <span class="klv-name">${name}</span>
+                    </div>
+                    <span class="klv-value">${value}</span>
+                </div>`;
+            table.innerHTML = [
+                f(2,  'Timestamp',      v(data.tag2_timestamp),                    true),
+                f(10, 'Designation',    v(data.tag10_designation),                  false),
+                f(5,  'Plat. Heading',  v(data.tag5_platformHeading, '°'),          false),
+                f(6,  'Plat. Pitch',    v(data.tag6_platformPitch,   '°'),          false),
+                f(7,  'Plat. Roll',     v(data.tag7_platformRoll,    '°'),          false),
+                f(13, 'Sensor Lat',     v(data.tag13_sensorLat, '°'),              false),
+                f(14, 'Sensor Lon',     v(data.tag14_sensorLon, '°'),              false),
+                f(15, 'Sensor Alt',     v(data.tag15_sensorAlt, 'm'),              false),
+                f(16, 'HFOV',           v(data.tag16_hFov, '°'),                   false),
+                f(17, 'VFOV',           v(data.tag17_vFov, '°'),                   false),
+                f(18, 'Sensor Azimuth', v(data.tag18_sensorAzimuth,   '°'),        false),
+                f(19, 'Sensor Elev.',   v(data.tag19_sensorElevation, '°'),        false),
+                f(20, 'Sensor Roll',    v(data.tag20_sensorRoll,      '°'),        false),
+                f(21, 'Slant Range',    v(data.tag21_slantRange,  'm'),            false),
+                f(22, 'Target Width',   v(data.tag22_targetWidth, 'm'),            false),
+                f(23, 'FC Lat',         v(data.tag23_frameCenterLat, '°'),         false),
+                f(24, 'FC Lon',         v(data.tag24_frameCenterLon, '°'),         false),
+                f(25, 'FC Alt',         v(data.tag25_frameCenterAlt, 'm'),         false),
+                f(82, 'Corner 1 Lat',   v(data.tag82_corner1Lat, '°'),             false),
+                f(83, 'Corner 1 Lon',   v(data.tag83_corner1Lon, '°'),             false),
+                f(84, 'Corner 2 Lat',   v(data.tag84_corner2Lat, '°'),             false),
+                f(85, 'Corner 2 Lon',   v(data.tag85_corner2Lon, '°'),             false),
+                f(86, 'Corner 3 Lat',   v(data.tag86_corner3Lat, '°'),             false),
+                f(87, 'Corner 3 Lon',   v(data.tag87_corner3Lon, '°'),             false),
+                f(88, 'Corner 4 Lat',   v(data.tag88_corner4Lat, '°'),             false),
+                f(89, 'Corner 4 Lon',   v(data.tag89_corner4Lon, '°'),             false),
+            ].join('');
+        }
+
+        function copyKlvJson() {
+            if (!Object.keys(currentKlvData).length) {
+                addLog('Sin datos KLV. Selecciona un dron o carga un archivo KLV.', 'system'); return;
+            }
+            navigator.clipboard.writeText(JSON.stringify(currentKlvData, null, 2))
+                .then(() => addLog('KLV JSON copiado al portapapeles.', 'system'))
+                .catch(() => addLog('Error al copiar KLV JSON.', 'system'));
+        }
+
+        async function showFfmpegLog() {
+            const box = document.getElementById('ffmpeg-log-box');
+            if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+            try {
+                // Pedir el log del stream DJI activo si lo hay, si no el legacy
+                const snPath = _activeDjiGatewaySn ? `/${encodeURIComponent(_activeDjiGatewaySn)}` : '';
+                const res  = await fetch(`/api/stream/log${snPath}`, { cache: 'no-store' });
+                const data = await res.json();
+                box.textContent = data.lines.join('\n') || '(sin salida aún — ffmpeg no ha escrito nada todavía)';
+                box.style.display = 'block';
+                box.scrollTop = box.scrollHeight;
+            } catch { box.textContent = 'Error al obtener el log.'; box.style.display = 'block'; }
+        }
+
+        function formatBytes(b) {
+            if (b < 1024) return b + ' B';
+            if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+            if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+            return (b / 1073741824).toFixed(2) + ' GB';
+        }
+
+        // ─── Drag del panel ───────────────────────────────────────────────────
+
+        (function initVideoPanelDrag() {
+            const panel  = document.getElementById('video-panel');
+            const header = document.getElementById('video-panel-header');
+            let dragging = false, sx, sy, ox, oy;
+            header.addEventListener('mousedown', e => {
+                dragging = true; sx = e.clientX; sy = e.clientY;
+                const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
+                panel.style.right = 'auto'; panel.style.left = ox + 'px'; panel.style.top = oy + 'px'; e.preventDefault();
+            });
+            document.addEventListener('mousemove', e => {
+                if (!dragging) return;
+                panel.style.left = (ox + e.clientX - sx) + 'px';
+                panel.style.top  = (oy + e.clientY - sy) + 'px';
+            });
+            document.addEventListener('mouseup', () => { dragging = false; });
+        })();
+
+        let isDrawingSync = false;
+        let syncDrawCoords = [];
+        let syncTempLayer = null;
+
+        function onChangeGeomType() {
+            clearSyncDrawing();
+            const type = document.getElementById('sync-elem-type').value;
+            const radiusRow = document.getElementById('circle-radius-row');
+            if (radiusRow) radiusRow.style.display = (type === 'circle') ? 'block' : 'none';
+        }
+
+        function toggleSyncDrawingMode() {
+            const btn = document.getElementById('btn-sync-draw');
+            const status = document.getElementById('sync-draw-status');
+            const typeSelect = document.getElementById('sync-elem-type');
+
+            if (isDrawingSync) {
+                // Desactivar modo dibujo
+                isDrawingSync = false;
+                map.off('click', onSyncMapClick);
+                map.off('dblclick', onSyncMapDblClick);
+                btn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg> Dibujar`;
+                btn.style.color = 'var(--accent-cyan)';
+                status.textContent = syncDrawCoords.length > 0
+                    ? `${syncDrawCoords.length} punto(s) listo(s). Haz clic en "Enviar al Mando DJI".`
+                    : 'Haz clic en Dibujar y marca el elemento en el mapa.';
+                map.getContainer().style.cursor = '';
+            } else {
+                // Activar modo dibujo
+                isDrawingSync = true;
+                syncDrawCoords = [];
+                if (syncTempLayer) { map.removeLayer(syncTempLayer); syncTempLayer = null; }
+                map.on('click', onSyncMapClick);
+                map.on('dblclick', onSyncMapDblClick);
+                btn.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;"><polyline points="20 6 9 17 4 12"></polyline></svg> Finalizar`;
+                btn.style.color = 'var(--accent-danger, #f87171)';
+                map.getContainer().style.cursor = 'crosshair';
+                const hints = {
+                    pin:      'Haz clic en el mapa para colocar el pin.',
+                    circle:   'Haz clic en el centro del círculo.',
+                    polyline: 'Haz clic para añadir puntos. "Finalizar" para terminar.',
+                    polygon:  'Haz clic para añadir vértices. "Finalizar" para cerrar.'
+                };
+                status.textContent = hints[typeSelect.value] || 'Haz clic en el mapa.';
+            }
+        }
+
+        function onSyncMapClick(e) {
+            if (!isDrawingSync) return;
+            const type      = document.getElementById('sync-elem-type').value;
+            const latlng    = e.latlng;
+            const colorName = document.getElementById('sync-elem-color').value;
+            const colorMap  = { RED:'#E23C39', BLUE:'#2D8CF0', YELLOW:'#FFBB00', GREEN:'#19BE6B', ORANGE:'#F97316', PURPLE:'#8B5CF6' };
+            const color     = colorMap[colorName] || '#2D8CF0';
+
+            if (type === 'pin') {
+                syncDrawCoords = [[latlng.lng, latlng.lat]];
+                if (syncTempLayer) { map.removeLayer(syncTempLayer); syncTempLayer = null; }
+                syncTempLayer = L.marker(latlng, { icon: createDiamondIcon(color) }).addTo(map);
+                document.getElementById('sync-draw-status').textContent = 'Pin colocado. Haz clic en "Enviar al Mando DJI".';
+                toggleSyncDrawingMode();
+            } else if (type === 'circle') {
+                syncDrawCoords = [[latlng.lng, latlng.lat]];
+                const radius = parseInt(document.getElementById('circle-radius').value) || 200;
+                if (syncTempLayer) { map.removeLayer(syncTempLayer); syncTempLayer = null; }
+                syncTempLayer = L.circle(latlng, { radius, color, weight: 2, fillOpacity: 0.15, dashArray: '6 4' }).addTo(map);
+                document.getElementById('sync-draw-status').textContent = 'Centro marcado. Haz clic en "Enviar al Mando DJI".';
+                toggleSyncDrawingMode();
+            } else {
+                syncDrawCoords.push([latlng.lng, latlng.lat]);
+                if (syncTempLayer) { map.removeLayer(syncTempLayer); syncTempLayer = null; }
+                const latLngs = syncDrawCoords.map(c => [c[1], c[0]]);
+                syncTempLayer = (type === 'polyline')
+                    ? L.polyline(latLngs, { color, weight: 3 }).addTo(map)
+                    : L.polygon(latLngs, { color, weight: 2, fillOpacity: 0.15 }).addTo(map);
+                document.getElementById('sync-draw-status').textContent =
+                    `${syncDrawCoords.length} punto(s). Sigue haciendo clic o haz clic en "Finalizar".`;
+            }
+        }
+
+        function onSyncMapDblClick(e) {
+            const type = document.getElementById('sync-elem-type').value;
+            if (type === 'polyline' || type === 'polygon') {
+                L.DomEvent.stopPropagation(e);
+                toggleSyncDrawingMode();
+            }
+        }
+
+        function clearSyncDrawing() {
+            syncDrawCoords = [];
+            if (syncTempLayer) { map.removeLayer(syncTempLayer); syncTempLayer = null; }
+            if (isDrawingSync) toggleSyncDrawingMode();
+            const st = document.getElementById('sync-draw-status');
+            if (st) st.textContent = 'Haz clic en Dibujar y marca el elemento en el mapa.';
+        }
+
+        function generateUUID() {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+                return crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // ── Enviar elemento desde PC al mando ────────────────────────────────────
+
+        async function sendCustomSyncElement() {
+            const name      = (document.getElementById('sync-elem-name').value || '').trim() || 'Elemento Web';
+            const colorName = document.getElementById('sync-elem-color').value;
+            const geomType  = document.getElementById('sync-elem-type').value;
+            const layerId   = document.getElementById('layer-select').value
+                              || WORKSPACE_ID;
+            const workspaceId = WORKSPACE_ID;
+
+            if (syncDrawCoords.length === 0) {
+                document.getElementById('sync-draw-status').textContent = '⚠️ Primero dibuja el elemento en el mapa.';
+                return;
+            }
+
+            const colorMap = { RED:'#E23C39', BLUE:'#2D8CF0', YELLOW:'#FFBB00', GREEN:'#19BE6B', ORANGE:'#F97316', PURPLE:'#8B5CF6' };
+            const color    = colorMap[colorName] || '#2D8CF0';
+            const radius   = parseInt(document.getElementById('circle-radius')?.value) || 200;
+
+            let geometryType, coordinates, resourceType;
+            switch (geomType) {
+                case 'pin':
+                    geometryType = 'Point';
+                    coordinates  = [...syncDrawCoords[0], 0]; // [lon, lat, alt=0]
+                    resourceType = 0;
+                    break;
+                case 'circle':
+                    geometryType = 'Circle';
+                    coordinates  = syncDrawCoords[0];          // [lon, lat]
+                    resourceType = 0;
+                    break;
+                case 'polyline':
+                    geometryType = 'LineString';
+                    coordinates  = syncDrawCoords;
+                    resourceType = 1;
+                    break;
+                case 'polygon':
+                    geometryType = 'Polygon';
+                    // Cerrar el anillo exterior
+                    coordinates  = [[...syncDrawCoords, syncDrawCoords[0]]];
+                    resourceType = 2;
+                    break;
+                default:
+                    return;
+            }
+
+            const geometry = { type: geometryType, coordinates };
+            if (geomType === 'circle') geometry.radius = radius;
+
+            const element = {
+                id:   generateUUID(),
+                name,
+                resource: {
+                    user_name: 'WebApp',
+                    type:      resourceType,
+                    content: {
+                        type: 'Feature',
+                        properties: { color, clampToGround: false },
+                        geometry
+                    }
+                }
+            };
+
+            try {
+                // Usar el endpoint web (/api/web-map/...) que incluye group_id en el body
+                // y desencadena la notificación bidireccional (WS→RC + SignalR→web).
+                // NO llamamos fetchMapElements() tras el éxito: el elemento llega de vuelta
+                // por SignalR MapElementCreate y drawMapElement() lo pinta sin recargar todo.
+                const body = { ...element, group_id: layerId };
+                const res  = await fetch(
+                    `/api/web-map/workspaces/${workspaceId}/elements`,
+                    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }
+                );
+                const data = await res.json();
+                if (data.success) {
+                    addLog(`✅ Guardado en servidor: "${name}". Sincronizando con mando vía WS…`, 'success');
+                    clearSyncDrawing();
+                } else {
+                    addLog(`❌ Error al guardar elemento: ${JSON.stringify(data)}`, 'error');
+                    document.getElementById('sync-draw-status').textContent = `Error al enviar elemento`;
+                }
+            } catch (err) {
+                addLog(`❌ Error de red: ${err.message}`, 'error');
+            }
+        }
+
+        // ── Gestión de elementos guardados ───────────────────────────────────────
+
+        function renderElementsList() {
+            const list  = document.getElementById('saved-elements-list');
+            const badge = document.getElementById('elem-count-badge');
+            if (!list) return;
+
+            const elements = Object.values(mapElementsData);
+            if (badge) badge.textContent = elements.length;
+
+            if (elements.length === 0) {
+                list.innerHTML = '<div style="font-size:10px;color:var(--text-muted);text-align:center;padding:10px 0;">Sin elementos guardados</div>';
+                return;
+            }
+
+            const typeIcon = { Point:'◆', LineString:'—', Polygon:'▭', Circle:'○' };
+
+            list.innerHTML = elements.map(el => {
+                const geo   = el.resource?.content?.geometry;
+                const color = getValidCssColor(el.resource?.content?.properties?.color);
+                const icon  = typeIcon[geo?.type] || '◆';
+                const gid   = el.group_id || el._groupId || '';
+                const wid   = WORKSPACE_ID;
+                return `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.04);border-radius:6px;padding:4px 6px;min-width:0;">
+                    <span style="color:${color};font-size:11px;flex-shrink:0;">${icon}</span>
+                    <span style="font-size:10px;color:var(--text-main);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${el.name || el.id}">${el.name || el.id}</span>
+                    <button onclick="deleteElementById('${el.id}','${wid}')" title="Borrar"
+                        style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:0 2px;line-height:1;flex-shrink:0;">✕</button>
+                </div>`;
+            }).join('');
+        }
+
+        function populateLayerDropdown(groups) {
+            const sel = document.getElementById('layer-select');
+            if (!sel || !Array.isArray(groups)) return;
+            const prev = sel.value;
+            sel.innerHTML = '';
+            groups.forEach(g => {
+                const opt       = document.createElement('option');
+                opt.value       = g.id;
+                opt.textContent = g.name;
+                if (g.id === prev || (!prev && g.type === 2)) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            // Si no había selección previa, seleccionar la primera AppShared (type=2)
+            if (!sel.value && groups.length) sel.value = groups[0].id;
+        }
+
+        async function deleteElementById(id, workspaceId) {
+            try {
+                // Usar endpoint web: la respuesta es { success: true, id }
+                // El servidor también emite MapElementDelete por SignalR (idempotente si
+                // ya eliminamos la capa localmente).
+                const res  = await fetch(`/api/web-map/workspaces/${workspaceId}/elements/${id}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.success) {
+                    if (mapElements[id]) { map.removeLayer(mapElements[id]); delete mapElements[id]; }
+                    delete mapElementsData[id];
+                    renderElementsList();
+                    addLog(`🗑️ Elemento borrado.`, 'system');
+                } else {
+                    addLog(`❌ No se pudo borrar: ${JSON.stringify(data)}`, 'error');
+                }
+            } catch (e) {
+                addLog(`❌ Error al borrar elemento: ${e.message}`, 'error');
+            }
+        }
+
+        async function deleteAllElements() {
+            const keys = Object.keys(mapElementsData);
+            if (!keys.length) { addLog('Sin elementos que borrar.', 'system'); return; }
+            if (!confirm(`¿Borrar los ${keys.length} elemento(s) del mapa?\nEsta acción también los eliminará del mando.`)) return;
+
+            const wid = WORKSPACE_ID;
+            try {
+                // Batch delete vía web API: un solo HTTP DELETE con todos los IDs
+                const res  = await fetch(`/api/web-map/workspaces/${wid}/elements`, {
+                    method:  'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body:    JSON.stringify({ ids: keys })
+                });
+                const data = await res.json();
+                const n = data.deleted_count ?? 0;
+                addLog(`🗑️ ${n}/${keys.length} elemento(s) borrado(s).`, 'system');
+                // Cada borrado individual emite MapElementDelete por SignalR → la UI se
+                // actualiza elemento a elemento sin recargar todo el mapa.
+            } catch (err) {
+                addLog(`❌ Error al borrar elementos: ${err.message}`, 'error');
+                await fetchMapElements(wid);   // fallback: recarga completa
+            }
+        }
+
+        function exportAllKml() {
+            const elements = Object.values(mapElementsData);
+            if (!elements.length) { addLog('Sin elementos para exportar.', 'system'); return; }
+
+            const placemarks = elements.map(el => {
+                const geo   = el.resource?.content?.geometry;
+                const props = el.resource?.content?.properties;
+                if (!geo) return '';
+                const name  = (el.name || el.id).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+                let coordKml = '';
+                if (geo.type === 'Point') {
+                    const [lon, lat, alt = 0] = geo.coordinates;
+                    coordKml = `${lon},${lat},${alt}`;
+                } else if (geo.type === 'LineString') {
+                    coordKml = geo.coordinates.map(c => `${c[0]},${c[1]},${c[2]||0}`).join(' ');
+                } else if (geo.type === 'Polygon') {
+                    coordKml = geo.coordinates[0].map(c => `${c[0]},${c[1]},${c[2]||0}`).join(' ');
+                } else if (geo.type === 'Circle') {
+                    const [lon, lat] = geo.coordinates;
+                    coordKml = `${lon},${lat},0`;
+                }
+
+                const geomKml =
+                    geo.type === 'Point'      ? `<Point><coordinates>${coordKml}</coordinates></Point>` :
+                    geo.type === 'LineString' ? `<LineString><coordinates>${coordKml}</coordinates></LineString>` :
+                                                `<Polygon><outerBoundaryIs><LinearRing><coordinates>${coordKml}</coordinates></LinearRing></outerBoundaryIs></Polygon>`;
+
+                return `  <Placemark>\n    <name>${name}</name>\n    ${geomKml}\n  </Placemark>`;
+            }).filter(Boolean).join('\n');
+
+            const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n  <name>Elementos DJI</name>\n${placemarks}\n</Document>\n</kml>`;
+            const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+            const url  = URL.createObjectURL(blob);
+            const a    = Object.assign(document.createElement('a'), { href: url, download: 'elementos_dji.kml' });
+            a.click();
+            URL.revokeObjectURL(url);
+            addLog(`📥 KML exportado con ${elements.length} elemento(s).`, 'system');
+        }
+
+        // ── Handlers SignalR para grupos ─────────────────────────────────────────
+
+        connection.on("MapGroupCreate", function(payload) {
+            console.log('[SignalR] MapGroupCreate:', payload);
+            fetchMapElements();
+        });
+
+        connection.on("MapGroupUpdate", function(payload) {
+            console.log('[SignalR] MapGroupUpdate:', payload);
+            fetchMapElements();
+        });
+
+        connection.on("MapGroupDelete", function(payload) {
+            console.log('[SignalR] MapGroupDelete:', payload);
+            if (payload?.data?.id) {
+                const deletedGroupId = payload.data.id;
+                // Eliminar del mapa todos los elementos de ese grupo
+                Object.values(mapElementsData).forEach(el => {
+                    if ((el.group_id || el._groupId) === deletedGroupId) {
+                        if (mapElements[el.id]) { map.removeLayer(mapElements[el.id]); delete mapElements[el.id]; }
+                        delete mapElementsData[el.id];
+                    }
+                });
+                renderElementsList();
+            }
+            fetchMapElements();
+        });
+
+        // map_element_refresh — el servidor lo emite cuando varios elementos de un grupo
+        // cambian a la vez (p.ej. arrastre de capa en la web o importación masiva).
+        // El RC también lo recibe vía WebSocket y llama al GET /element-groups para refrescar.
+        // En el lado web simplemente recargamos todos los elementos del workspace.
+        connection.on("MapElementRefresh", function(payload) {
+            console.log('[SignalR] MapElementRefresh recibido:', payload);
+            fetchMapElements();
+        });
+
+    </script>
+</body>
+</html>

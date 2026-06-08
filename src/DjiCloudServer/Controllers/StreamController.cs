@@ -26,7 +26,11 @@ public class StreamController(
     private const int MediaMtxPort     = 8889;  // puerto WebRTC de MediaMTX (WHEP)
 
     private static readonly ConcurrentDictionary<string, string> _activeVideoIds = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly ConcurrentDictionary<string, bool> _activeProtocols = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, bool>   _activeProtocols = new(StringComparer.OrdinalIgnoreCase);
+
+    // Metadatos completos del stream activo por gateway (para switch-lens stop+restart)
+    private record StreamMeta(string VideoId, string StreamUrl, string WhepUrl, bool UseWebRtc, int UrlType, int Quality);
+    private static readonly ConcurrentDictionary<string, StreamMeta> _activeStreamMeta = new(StringComparer.OrdinalIgnoreCase);
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -292,9 +296,10 @@ public class StreamController(
         try
         {
             await mqtt.PublishAsync(topicGateway, payload, MqttQualityOfServiceLevel.AtLeastOnce);
-            _activeVideoIds[req.GatewaySn] = videoId;
+            _activeVideoIds[req.GatewaySn]  = videoId;
             _activeProtocols[req.GatewaySn] = req.UseWebRtc;
-            
+            _activeStreamMeta[req.GatewaySn] = new StreamMeta(videoId, streamUrl, whepUrl, req.UseWebRtc, urlType, quality);
+
             admin.AddLog("INFO", "LiveStream",
                 $"live_start_push → {req.GatewaySn} | url_type={urlType} | url={streamUrl} | video_id={videoId}");
         }
@@ -373,6 +378,7 @@ public class StreamController(
         var info = ffmpeg.GetBySn(gatewaySn);
         _activeVideoIds.TryRemove(gatewaySn, out var videoId);
         _activeProtocols.TryRemove(gatewaySn, out var useWebRtc);
+        _activeStreamMeta.TryRemove(gatewaySn, out _);
 
         videoId ??= info?.VideoId ?? "";
 
@@ -591,22 +597,144 @@ public class StreamController(
         return Ok(new { received = true, method = reply.Method, result = reply.Result, timestamp = reply.Timestamp });
     }
 
+    /// <summary>
+    /// Cambia la calidad de la retransmisión en directo sin detener el stream (live_set_quality).
+    /// video_quality: 0=Adaptativa 1=Fluida(540p) 2=SD(720p 1M) 3=HD(720p 1.5M) 4=UHD(1080p 3M)
+    /// </summary>
+    [HttpPost("set-quality")]
+    public async Task<IActionResult> SetQuality([FromBody] SetQualityRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.GatewaySn))
+            return BadRequest(new { error = "Se requiere GatewaySn." });
+        if (req.VideoQuality < 0 || req.VideoQuality > 4)
+            return BadRequest(new { error = "VideoQuality debe estar entre 0 y 4." });
+
+        if (!mqtt.IsConnected)
+            return StatusCode(503, new { error = "El broker MQTT no está conectado." });
+
+        // Obtener video_id del stream activo
+        if (!_activeVideoIds.TryGetValue(req.GatewaySn, out var videoId))
+            videoId = ffmpeg.GetBySn(req.GatewaySn)?.VideoId;
+
+        if (string.IsNullOrWhiteSpace(videoId))
+            return BadRequest(new { error = "No hay stream activo para este gateway. Inicia el stream primero." });
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            tid       = Guid.NewGuid().ToString(),
+            bid       = Guid.NewGuid().ToString(),
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            gateway   = req.GatewaySn,
+            method    = "live_set_quality",
+            data      = new { video_id = videoId, video_quality = req.VideoQuality }
+        });
+
+        try
+        {
+            await mqtt.PublishAsync($"thing/product/{req.GatewaySn}/services", payload, MqttQualityOfServiceLevel.AtLeastOnce);
+            admin.AddLog("INFO", "LiveStream",
+                $"live_set_quality → {req.GatewaySn} | quality={req.VideoQuality} | video_id={videoId}");
+            return Ok(new { success = true, videoQuality = req.VideoQuality, videoId });
+        }
+        catch (Exception ex)
+        {
+            admin.AddLog("WARN", "LiveStream", $"live_set_quality MQTT excepción: {ex.Message}");
+            return StatusCode(500, new { error = $"Error MQTT al enviar live_set_quality: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Cambia la cámara activa haciendo stop_push + start_push con el nuevo video_id.
+    /// Funciona para todos los modelos y firmwares porque reutiliza live_start_push,
+    /// que ya sabemos que funciona. El player del browser debe reconectarse tras la llamada.
+    /// </summary>
+    [HttpPost("switch-lens")]
+    public async Task<IActionResult> SwitchLens([FromBody] SwitchLensRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.GatewaySn) || string.IsNullOrWhiteSpace(req.TargetVideoId))
+            return BadRequest(new { error = "Se requieren GatewaySn y TargetVideoId." });
+
+        if (!_activeStreamMeta.TryGetValue(req.GatewaySn, out var meta))
+            return BadRequest(new { error = "No hay stream activo para este gateway. Inicia el stream primero." });
+
+        if (!mqtt.IsConnected)
+            return StatusCode(503, new { error = "El broker MQTT no está conectado." });
+
+        var tid = Guid.NewGuid().ToString();
+        var bid = Guid.NewGuid().ToString();
+
+        // 1. live_stop_push del stream actual
+        var stopPayload = JsonSerializer.Serialize(new
+        {
+            tid, bid,
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            gateway   = req.GatewaySn,
+            method    = "live_stop_push",
+            data      = new { video_id = meta.VideoId }
+        });
+        await mqtt.PublishAsync($"thing/product/{req.GatewaySn}/services", stopPayload, MqttQualityOfServiceLevel.AtLeastOnce);
+        admin.AddLog("INFO", "LiveStream", $"switch-lens stop → {req.GatewaySn} | video_id: {meta.VideoId}");
+
+        // Pausa para que el dron procese el stop antes de recibir el nuevo start
+        await Task.Delay(900);
+
+        // 2. live_start_push con el nuevo video_id pero la misma URL de stream
+        var startPayload = JsonSerializer.Serialize(new
+        {
+            tid       = Guid.NewGuid().ToString(),
+            bid       = Guid.NewGuid().ToString(),
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            gateway   = req.GatewaySn,
+            method    = "live_start_push",
+            data      = new
+            {
+                url_type      = meta.UrlType,
+                url           = meta.StreamUrl,
+                video_id      = req.TargetVideoId,
+                video_quality = meta.Quality
+            }
+        }).Replace("\\u0026", "&");
+
+        await mqtt.PublishAsync($"thing/product/{req.GatewaySn}/services", startPayload, MqttQualityOfServiceLevel.AtLeastOnce);
+
+        // Actualizar estado en memoria
+        _activeVideoIds[req.GatewaySn]   = req.TargetVideoId;
+        _activeStreamMeta[req.GatewaySn] = meta with { VideoId = req.TargetVideoId };
+
+        admin.AddLog("INFO", "LiveStream", $"switch-lens start → {req.GatewaySn} | video_id: {req.TargetVideoId} | url: {meta.StreamUrl}");
+
+        return Ok(new { success = true, videoId = req.TargetVideoId, whepUrl = meta.WhepUrl, useWebRtc = meta.UseWebRtc });
+    }
+
     [HttpPost("change-lens")]
     public async Task<IActionResult> ChangeLens([FromBody] ChangeLensRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.GatewaySn) || string.IsNullOrWhiteSpace(req.LensType))
-            return BadRequest(new { error = "Se requiere GatewaySn y LensType (wide, zoom, thermal, normal)." });
+            return BadRequest(new { error = "Se requiere GatewaySn y LensType (wide, zoom, thermal, ir, normal)." });
 
-        var info = ffmpeg.GetBySn(req.GatewaySn);
-        var videoId = info?.VideoId;
-        
+        // Prioridad: videoId explícito del frontend > cache del servidor > construcción por fallback
+        string? videoId = req.VideoId;
+
+        if (string.IsNullOrWhiteSpace(videoId))
+        {
+            if (!_activeVideoIds.TryGetValue(req.GatewaySn, out videoId))
+            {
+                var info = ffmpeg.GetBySn(req.GatewaySn);
+                videoId = info?.VideoId;
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(videoId))
         {
             var aircraftSn = admin.GetAircraftForGateway(req.GatewaySn) ?? req.GatewaySn;
             var cameraType = string.IsNullOrWhiteSpace(req.CameraType) ? "67-0-0" : req.CameraType;
-            var videoIndex = "normal-0";
-            videoId = $"{aircraftSn}/{cameraType}/{videoIndex}";
+            videoId = $"{aircraftSn}/{cameraType}/normal-0";
         }
+
+        // RC-Pro / DJI Pilot 2: "wide" | "zoom" | "thermal" | "normal"
+        // Dock:                  "wide" | "zoom" | "ir"      | "normal"
+        // El frontend envía siempre el valor correcto para RC; no transformar.
+        var apiLensType = req.LensType.ToLowerInvariant();
 
         var payload = JsonSerializer.Serialize(new
         {
@@ -618,15 +746,15 @@ public class StreamController(
             data = new
             {
                 video_id = videoId,
-                video_type = req.LensType
+                video_type = apiLensType
             }
         });
 
         try
         {
             await mqtt.PublishAsync($"thing/product/{req.GatewaySn}/services", payload, MqttQualityOfServiceLevel.AtLeastOnce);
-            admin.AddLog("INFO", "LiveStream", $"live_lens_change → {req.GatewaySn} | lens={req.LensType} | video_id={videoId}");
-            return Ok(new { success = true, lens = req.LensType, videoId });
+            admin.AddLog("INFO", "LiveStream", $"live_lens_change → {req.GatewaySn} | lens={apiLensType} | video_id={videoId}");
+            return Ok(new { success = true, lens = apiLensType, videoId });
         }
         catch (Exception ex)
         {
@@ -651,5 +779,16 @@ public record StartLiveRequest(
 public record ChangeLensRequest(
     string GatewaySn,
     string LensType,
+    string? VideoId = null,
     string? CameraType = null
+);
+
+public record SwitchLensRequest(
+    string GatewaySn,
+    string TargetVideoId
+);
+
+public record SetQualityRequest(
+    string GatewaySn,
+    int VideoQuality
 );

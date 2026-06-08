@@ -16,6 +16,18 @@ public class DjiCloudOptions
     /// sin necesidad de selección manual. Dejar vacío para detección automática.
     /// </summary>
     public string ServerIp { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Identificador del workspace DJI (UUID). Debe coincidir en RC (DJI Pilot 2),
+    /// servidor y cliente web para que la sincronización de elementos funcione.
+    /// </summary>
+    public string WorkspaceId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Ruta relativa al KML de zonas de vuelo personalizadas, dentro de wwwroot.
+    /// Ejemplo: "flight-areas/zonas.kml". Vacío = sin KML.
+    /// </summary>
+    public string FlightAreaKmlFile { get; set; } = string.Empty;
 }
 
 public class MqttOptions

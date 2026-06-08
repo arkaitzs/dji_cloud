@@ -78,7 +78,7 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
     public bool    IsRunning     => false;
     public string? CurrentSource { get; private set; }
     public string  LastStderr    => _legacyStderr.ToString();
-    public int     RtmpPort      => _streams.IsEmpty ? 0 : _streams.Values.First().Port;
+    public int     RtmpPort      => _streams.Values.ToArray().FirstOrDefault()?.Port ?? 0;
 
     public string? GetMediaMtxLogPath()
     {
@@ -179,10 +179,10 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
     // ─ API multi-stream ───────────────────────────────────────────────────────
 
     public IReadOnlyList<StreamInfo> ActiveStreams =>
-        _streams.Values.Where(i => i.IsAlive).Select(i => i.Info).ToList();
+        _streams.Values.ToArray().Where(i => i.IsAlive).Select(i => i.Info).ToList();
 
     public StreamInfo? GetByPort(int port) =>
-        _streams.Values.FirstOrDefault(i => i.Port == port)?.Info;
+        _streams.Values.ToArray().FirstOrDefault(i => i.Port == port)?.Info;
 
     public StreamInfo? GetBySn(string gatewaySn) =>
         _streams.TryGetValue(gatewaySn, out var inst) && inst.IsAlive ? inst.Info : null;

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.IO;
 using System.Text.Json;
+using Microsoft.Extensions.Options;
 
 namespace DjiCloudServer.Services;
 
@@ -158,11 +159,15 @@ public class AdminDataService : IAdminDataService
     private readonly string _cacheFilePath;
     private readonly ILogger<AdminDataService> _logger;
     private readonly IMqttFileLogger _fileLogger;
+    private readonly IDjiWebSocketManager _wsManager;
+    private readonly string _workspaceId;
 
-    public AdminDataService(ILogger<AdminDataService> logger, IMqttFileLogger fileLogger)
+    public AdminDataService(ILogger<AdminDataService> logger, IMqttFileLogger fileLogger, IDjiWebSocketManager wsManager, IOptions<DjiCloudOptions> options)
     {
         _logger = logger;
         _fileLogger = fileLogger;
+        _wsManager = wsManager;
+        _workspaceId = options.Value.WorkspaceId;
         var appDir = AppDomain.CurrentDomain.BaseDirectory;
         _cacheFilePath = Path.Combine(appDir, "live_capacity_cache.json");
         LoadCache();
@@ -326,6 +331,18 @@ public class AdminDataService : IAdminDataService
             dev.LastSeen = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         }
         AddLog(isOnline ? "INFO" : "WARN", "Device", $"Dispositivo {sn} ({deviceType}) está {(isOnline ? "ONLINE" : "OFFLINE")}");
+
+        // Broadcast device_online/device_offline via WebSocket (TSA)
+        var bizCode = isOnline ? "device_online" : "device_offline";
+        var msg = new
+        {
+            biz_code = bizCode,
+            version = "1.0",
+            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            data = new {}
+        };
+        var json = JsonSerializer.Serialize(msg);
+        _ = Task.Run(() => _wsManager.BroadcastAsync(_workspaceId, json));
     }
 
     public SystemStatusDto GetSystemStatus(int connectedMqttClientsCount)
@@ -339,7 +356,7 @@ public class AdminDataService : IAdminDataService
             MemoryUsageMb = process.PrivateMemorySize64 / (1024.0 * 1024.0),
             Os = RuntimeInformation.OSDescription,
             ConnectedMqttClients = connectedMqttClientsCount,
-            ActiveDrones = _devices.Values.Count(d => d.IsOnline && d.DeviceType != "Cliente MQTT" && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - d.LastSeen < 60000)),
+            ActiveDrones = _devices.Values.ToArray().Count(d => d.IsOnline && d.DeviceType != "Cliente MQTT" && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - d.LastSeen < 60000)),
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
     }
@@ -353,7 +370,9 @@ public class AdminDataService : IAdminDataService
     public List<DeviceStatusDto> GetDevices()
     {
         var cutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - DroneOfflineMs;
-        foreach (var dev in _devices.Values)
+        var snapshot = _devices.Values.ToArray(); // Snapshot antes de modificar
+
+        foreach (var dev in snapshot)
         {
             // Mando y Dock: su estado online lo gestiona exclusivamente el evento
             // MQTT connect/disconnect — no aplicar cutoff de tiempo.
@@ -362,9 +381,22 @@ public class AdminDataService : IAdminDataService
             {
                 lock (dev) { dev.IsOnline = false; }
                 AddLog("WARN", "Device", $"Dispositivo {dev.Sn} marcado como OFFLINE por inactividad (>{DroneOfflineMs / 1000}s sin OSD)");
+
+                // Broadcast device_offline via WebSocket (TSA)
+                var msg = new
+                {
+                    biz_code = "device_offline",
+                    version = "1.0",
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    data = new {}
+                };
+                var json = JsonSerializer.Serialize(msg);
+                _ = Task.Run(() => _wsManager.BroadcastAsync(_workspaceId, json));
             }
         }
-        return _devices.Values.OrderByDescending(d => d.LastSeen).ToList();
+
+        // Crear nueva snapshot después de modificaciones para retornar estado consistente
+        return _devices.Values.ToArray().OrderByDescending(d => d.LastSeen).ToList();
     }
 
     public List<LogEventDto> GetLogs()
@@ -719,7 +751,7 @@ public class AdminDataService : IAdminDataService
     {
         var result = new List<GatewayInfoDto>();
 
-        foreach (var dev in _devices.Values)
+        foreach (var dev in _devices.Values.ToArray())
         {
             if (dev.DeviceType != "Mando" && dev.DeviceType != "Dock") continue;
             // Los gateways (RC/Dock) usan el flag IsOnline directamente —

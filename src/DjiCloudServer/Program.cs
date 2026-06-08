@@ -82,11 +82,15 @@ builder.Services.AddCors(options =>
 });
 
 // ─── Servicios DJI Cloud API ──────────────────────────────────────────────────
+builder.Services.AddSingleton<IDjiWebSocketManager, DjiWebSocketManager>();
+builder.Services.AddSingleton<IMapDataService, MapDataService>();
+builder.Services.AddSingleton<IMapSyncNotifier, MapSyncNotifier>();
 builder.Services.AddSingleton<IAdminDataService, AdminDataService>();
 builder.Services.AddSingleton<ITrajectoryStore, TrajectoryStore>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
 builder.Services.AddHostedService(sp => (MqttService)sp.GetRequiredService<IMqttService>());
 builder.Services.AddSingleton<IFfmpegService, FfmpegService>();
+builder.Services.AddSingleton<IFlightAreaService, FlightAreaService>();
 builder.Services.AddSingleton<IFlightRecorderService, FlightRecorderService>();
 builder.Services.AddHostedService(sp => (FlightRecorderService)sp.GetRequiredService<IFlightRecorderService>());
 builder.Services.AddSingleton<IMqttFileLogger, MqttFileLogger>();
@@ -116,6 +120,9 @@ builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
 var app = builder.Build();
+
+// Cargar elementos de mapa persistidos
+await app.Services.GetRequiredService<IMapDataService>().LoadAsync();
 
 // Limpiar procesos ffmpeg huérfanos de reinicios anteriores
 await app.Services.GetRequiredService<IFfmpegService>().KillOrphansAsync();
@@ -645,6 +652,20 @@ app.UseMqttServer(server => {
                                             app.Logger.LogInformation("[TOPO] Aeronave SN={AcSn} type={Type} sub_type={SubType} pareada con gateway={GwSn}",
                                                 subSn, acType, acSubType, sn);
                                             adminData.AddLog("INFO", "Topología", $"Aeronave {subSn}: type={acType} sub_type={acSubType} ← gateway {sn}");
+
+                                            // Broadcast device_update_topo via WebSocket (TSA)
+                                            var wsManagerForTopo = app.Services.GetRequiredService<IDjiWebSocketManager>();
+                                            var cloudOptsForTopo = app.Services.GetRequiredService<IOptions<DjiCloudOptions>>();
+                                            var workspaceIdForTopo = cloudOptsForTopo.Value.WorkspaceId;
+                                            var topoMsg = new
+                                            {
+                                                biz_code = "device_update_topo",
+                                                version = "1.0",
+                                                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                                data = new {}
+                                            };
+                                            var topoJson = JsonSerializer.Serialize(topoMsg);
+                                            _ = Task.Run(() => wsManagerForTopo.BroadcastAsync(workspaceIdForTopo, topoJson));
                                         }
                                     }
                                 }
@@ -1008,6 +1029,33 @@ app.UseMqttServer(server => {
                                 batteryPercent, gpsNumber, sdrFreqBand,
                                 modeCode, remainFlightTime, horizontalSpeed, verticalSpeed,
                                 attitudePitch, attitudeRoll, gpsFixed > 0);
+
+                            // Broadcast device_osd via WebSocket (TSA)
+                            var wsManagerForTsa = app.Services.GetRequiredService<IDjiWebSocketManager>();
+                            var cloudOptsForTsa = app.Services.GetRequiredService<IOptions<DjiCloudOptions>>();
+                            var workspaceIdForTsa = cloudOptsForTsa.Value.WorkspaceId;
+                            var tsaMsg = new
+                            {
+                                biz_code = "device_osd",
+                                version = "1.0",
+                                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                data = new
+                                {
+                                    host = new
+                                    {
+                                        latitude,
+                                        longitude,
+                                        height = altitude,
+                                        attitude_head = heading,
+                                        elevation,
+                                        horizontal_speed = horizontalSpeed,
+                                        vertical_speed = verticalSpeed
+                                    },
+                                    sn
+                                }
+                            };
+                            var tsaJson = JsonSerializer.Serialize(tsaMsg);
+                            _ = Task.Run(() => wsManagerForTsa.BroadcastAsync(workspaceIdForTsa, tsaJson));
                         }
                         skipPosition:; // destino del goto cuando lat/lon = (0,0)
 
@@ -1072,7 +1120,11 @@ mimeProvider.Mappings[".klv"]  = "application/octet-stream";
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
-    if (!path.StartsWith("/api/") || path.StartsWith("/api/admin"))
+    bool isApi = path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
+    bool isMap = path.StartsWith("/map/", StringComparison.OrdinalIgnoreCase);
+    bool isAdmin = path.StartsWith("/api/admin", StringComparison.OrdinalIgnoreCase);
+
+    if ((!isApi && !isMap) || isAdmin)
     {
         await next(context);
         return;
@@ -1109,8 +1161,52 @@ app.Use(async (context, next) =>
             app.Logger.LogInformation("[WebSocket] Mando conectado.");
             
             var adminData = context.RequestServices.GetRequiredService<IAdminDataService>();
+            var wsManager = context.RequestServices.GetRequiredService<IDjiWebSocketManager>();
+            var cloudOpts = context.RequestServices.GetRequiredService<IOptions<DjiCloudOptions>>();
+            var workspaceId = cloudOpts.Value.WorkspaceId;
+            var connectionId = Guid.NewGuid().ToString();
+
+            wsManager.RegisterSocket(workspaceId, connectionId, webSocket);
             adminData.AddLog("INFO", "WebSocket", "Mando conectado al canal WebSocket (/ws)");
-            
+
+            // ── Sync on reconnect ─────────────────────────────────────────────
+            // La documentación DJI (Map Elements > Interaction Sequence Diagram) establece que
+            // Pilot 2 llama GET /element-groups automáticamente al cargar el módulo "map".
+            // Sin embargo, ese GET ocurre ~2-3 s después del WebSocket connect, y puede
+            // producirse antes de que el servidor haya terminado de inicializar el workspace.
+            //
+            // El mecanismo oficial para forzar un refresco desde el servidor es el evento
+            // WebSocket "map_group_refresh" (doc: 57_Pilot Cloud WebSocket Map Elements Push Message).
+            // Al recibirlo, Pilot 2 llama de nuevo GET /element-groups para ese group_id.
+            //
+            // Lo enviamos con un delay de 4 s para garantizar que el módulo "map" de Pilot 2
+            // ya ha terminado de inicializarse y está listo para procesar el evento.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(4000); // Espera a que el módulo map de Pilot 2 se inicialice
+                    if (webSocket.State != System.Net.WebSockets.WebSocketState.Open) return;
+
+                    var mapDataSvc = app.Services.GetRequiredService<IMapDataService>();
+                    var syncSvc    = app.Services.GetRequiredService<IMapSyncNotifier>();
+                    var groups     = mapDataSvc.GetWorkspaceGroups(workspaceId);
+
+                    foreach (var group in groups)
+                    {
+                        if (group.Elements.Count == 0) continue; // no hay nada que refrescar
+                        await syncSvc.NotifyMapRefreshAsync(workspaceId, group.Id);
+                        app.Logger.LogInformation(
+                            "[WebSocket] map_group_refresh enviado al reconectar → grupo={G} ({N} elementos)",
+                            group.Id, group.Elements.Count);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    app.Logger.LogWarning(ex, "[WebSocket] Error enviando map_group_refresh al reconectar");
+                }
+            });
+
             var buffer = new byte[1024 * 4];
             try
             {
@@ -1130,6 +1226,7 @@ app.Use(async (context, next) =>
             }
             finally
             {
+                wsManager.UnregisterSocket(workspaceId, connectionId);
                 app.Logger.LogInformation("[WebSocket] Mando desconectado.");
                 adminData.AddLog("WARN", "WebSocket", "Mando desconectado del canal WebSocket");
             }
@@ -1243,3 +1340,70 @@ _ = Task.Run(async () =>
 
                 // Heartbeat DRC — obligatorio cada ≤3 s para que DJI mantenga el canal abierto.
                 // El campo 'seq' debe incrementarse en cada envío (spec DJI Cloud API).
+                if (adminSvc.IsDrcActive(gw.GatewaySn))
+                {
+                    var seq = _drcHeartbeatSeq.AddOrUpdate(
+                        gw.GatewaySn,
+                        addValue:    1,
+                        updateValueFactory: (_, prev) => prev + 1);
+
+                    var hbJson = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        method = "heart_beat",
+                        data   = new { seq, timestamp = ts }
+                    });
+                    await mqttSvc.PublishAsync($"thing/product/{gw.GatewaySn}/drc/down",
+                        hbJson, MqttQualityOfServiceLevel.AtMostOnce);
+                }
+                else
+                {
+                    // Si el DRC se desactivó, resetear el seq para la próxima sesión
+                    _drcHeartbeatSeq.TryRemove(gw.GatewaySn, out _);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogWarning(ex, "[MQTT-Probe] Error en ciclo de probes/heartbeat. El bucle continúa.");
+        }
+
+        try { await Task.Delay(3000, _probeAppCt); }
+        catch (OperationCanceledException) { break; }
+    }
+
+    app.Logger.LogInformation("[MQTT-Probe] Bucle de probes detenido (app shutdown)");
+});
+
+app.Run();
+
+// ─── Helpers de arranque ──────────────────────────────────────────────────────
+
+static void OpenRtmpFirewallRule(ILogger logger)
+{
+    try
+    {
+        // Abrir el rango completo del pool RTMP (1935-1954) para entrada TCP
+        const string args = "advfirewall firewall add rule " +
+                            "name=\"DJI_Cloud_RTMP\" " +
+                            "dir=in action=allow protocol=TCP " +
+                            "localport=1935-1954 enable=yes";
+        using var proc = System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo("netsh", args)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true
+            })!;
+        proc.WaitForExit(5000);
+        var output = proc.StandardOutput.ReadToEnd().Trim();
+        if (proc.ExitCode == 0)
+            logger.LogInformation("[Firewall] Regla DJI_Cloud_RTMP (1935-1954) creada/confirmada: {Output}", output);
+        else
+            logger.LogWarning("[Firewall] netsh salió con código {Code}: {Output}", proc.ExitCode, output);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning("[Firewall] No se pudo aplicar la regla (¿sin permisos de administrador?): {Msg}", ex.Message);
+    }
+}

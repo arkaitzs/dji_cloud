@@ -817,9 +817,13 @@
                             <button class="filter-btn" data-type="HTTP">HTTP</button>
                             <button class="filter-btn" data-type="MQTT">MQTT</button>
                             <button class="filter-btn" data-type="WS">WEBSOCKET</button>
-                            <button class="csv-btn" onclick="downloadLogsAsCsv()">
+                            <button class="csv-btn" onclick="downloadLogsAsCsv(false)" title="Descarga los logs del día completo">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="stroke: currentColor;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                CSV
+                                CSV Día
+                            </button>
+                            <button class="csv-btn" onclick="downloadLogsAsCsv(true)" title="Descarga los logs desde la última conexión (mando/WebSocket)">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="stroke: currentColor;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                CSV Sesión
                             </button>
                         </div>
                         <!-- MediaMTX controls (shown only on MediaMTX tab) -->
@@ -1086,7 +1090,7 @@
                 if (currentFilter === 'all') return true;
                 if (currentFilter === 'HTTP') return l.level === 'HTTP';
                 if (currentFilter === 'MQTT') return l.level === 'MQTT';
-                if (currentFilter === 'WS') return l.level === 'WebSocket' || l.level === 'WS';
+                if (currentFilter === 'WS') return l.level === 'WebSocket' || l.level === 'WS' || l.source === 'WebSocket';
                 return l.level.toUpperCase() === currentFilter.toUpperCase();
             });
 
@@ -1100,7 +1104,7 @@
                 let lvlClass = 'info';
                 if (l.level === 'HTTP') lvlClass = 'http';
                 else if (l.level === 'MQTT') lvlClass = 'mqtt';
-                else if (l.level === 'WebSocket' || l.level === 'WS') lvlClass = 'ws';
+                else if (l.level === 'WebSocket' || l.level === 'WS' || l.source === 'WebSocket') lvlClass = 'ws';
                 else if (l.level === 'WARN') lvlClass = 'warn';
                 else if (l.level === 'ERROR') lvlClass = 'error';
 
@@ -1183,7 +1187,7 @@
             });
         }
 
-        async function downloadLogsAsCsv() {
+        async function downloadLogsAsCsv(sessionOnly = false) {
             // Resolver nombre de archivo según la fecha local actual del cliente
             const localDate = new Date();
             const yyyy = localDate.getFullYear();
@@ -1197,12 +1201,6 @@
                 if (!response.ok) throw new Error("No se pudo obtener el archivo completo del servidor.");
                 const csvText = await response.text();
 
-                // Si el filtro está en "TODOS", descargar todo directamente
-                if (currentFilter === 'all') {
-                    triggerDownload(csvText, `dji_cloud_all_logs_${dateStr}.csv`);
-                    return;
-                }
-
                 // Parser completo de CSV robusto (resuelve saltos de línea internos en los mensajes)
                 const rows = parseFullCsv(csvText);
                 if (rows.length === 0) {
@@ -1211,13 +1209,42 @@
                 }
 
                 const header = rows[0];
+                let processedRows = rows.slice(1);
+
+                // Si es solo la última conexión/sesión, filtramos desde el último CONNECTED/WebSocket conectado
+                if (sessionOnly) {
+                    let lastConnIndex = -1;
+                    // Buscar de atrás hacia adelante
+                    for (let i = processedRows.length - 1; i >= 0; i--) {
+                        const row = processedRows[i];
+                        if (row.length >= 3) {
+                            const source = row[1] ? row[1].toUpperCase() : '';
+                            const level = row[2] ? row[2].toUpperCase() : '';
+                            const msg = row[4] ? row[4].toUpperCase() : '';
+
+                            // Criterios de conexión
+                            if ((source === 'WEBSOCKET' && msg.includes('CONECTADO')) ||
+                                (level === 'CONNECTED') || 
+                                (msg.includes('CONECTADO AL BROKER MQTT')) ||
+                                (msg.includes('MANDO CONECTADO'))) {
+                                lastConnIndex = i;
+                                break;
+                            }
+                        }
+                    }
+                    if (lastConnIndex !== -1) {
+                        processedRows = processedRows.slice(lastConnIndex);
+                    }
+                }
+
                 const filteredRows = [header];
                 const activeFilter = currentFilter.toUpperCase();
 
-                for (let i = 1; i < rows.length; i++) {
-                    const row = rows[i];
+                for (let i = 0; i < processedRows.length; i++) {
+                    const row = processedRows[i];
                     if (row.length >= 3) {
-                        const level = row[2].toUpperCase();
+                        const source = row[1] ? row[1].toUpperCase() : '';
+                        const level = row[2] ? row[2].toUpperCase() : '';
                         let matches = false;
 
                         if (activeFilter === 'MQTT') {
@@ -1225,7 +1252,9 @@
                                        level === 'UNSUBSCRIBE' || level === 'CONNECTING' || 
                                        level === 'CONNECTED' || level === 'DISCONNECTED');
                         } else if (activeFilter === 'WS') {
-                            matches = (level === 'WEBSOCKET' || level === 'WS');
+                            matches = (level === 'WEBSOCKET' || level === 'WS' || source === 'WEBSOCKET' || source === 'WS');
+                        } else if (activeFilter === 'ALL') {
+                            matches = true;
                         } else {
                             matches = (level === activeFilter);
                         }
@@ -1238,10 +1267,11 @@
 
                 // Volver a formatear a CSV
                 const newCsvText = filteredRows.map(formatCsvRow).join('\n');
-                triggerDownload(newCsvText, `dji_cloud_logs_${currentFilter.toLowerCase()}_${dateStr}.csv`);
+                const suffix = sessionOnly ? 'session' : 'day';
+                triggerDownload(newCsvText, `dji_cloud_logs_${currentFilter.toLowerCase()}_${suffix}_${dateStr}.csv`);
             } catch (err) {
                 console.warn("Fallo al descargar log del servidor, reintentando con buffer local...", err);
-                downloadLocalLogsCsv();
+                downloadLocalLogsCsv(sessionOnly);
             }
         }
 
@@ -1310,14 +1340,37 @@
             document.body.removeChild(link);
         }
 
-        function downloadLocalLogsCsv() {
+        function downloadLocalLogsCsv(sessionOnly = false) {
             const headers = ["Fecha/Hora", "Nivel", "Origen", "Mensaje"];
 
-            const filteredLogs = allLogs.filter(l => {
+            let processedLogs = allLogs;
+
+            if (sessionOnly) {
+                let lastConnIndex = -1;
+                for (let i = allLogs.length - 1; i >= 0; i--) {
+                    const log = allLogs[i];
+                    const source = log.source ? log.source.toUpperCase() : '';
+                    const level = log.level ? log.level.toUpperCase() : '';
+                    const msg = log.message ? log.message.toUpperCase() : '';
+
+                    if ((source === 'WEBSOCKET' && msg.includes('CONECTADO')) ||
+                        (level === 'CONNECTED') || 
+                        (msg.includes('CONECTADO AL BROKER MQTT')) ||
+                        (msg.includes('MANDO CONECTADO'))) {
+                        lastConnIndex = i;
+                        break;
+                    }
+                }
+                if (lastConnIndex !== -1) {
+                    processedLogs = allLogs.slice(lastConnIndex);
+                }
+            }
+
+            const filteredLogs = processedLogs.filter(l => {
                 if (currentFilter === 'all') return true;
                 if (currentFilter === 'HTTP') return l.level === 'HTTP';
                 if (currentFilter === 'MQTT') return l.level === 'MQTT';
-                if (currentFilter === 'WS') return l.level === 'WebSocket' || l.level === 'WS';
+                if (currentFilter === 'WS') return l.level === 'WebSocket' || l.level === 'WS' || l.source === 'WebSocket';
                 return l.level.toUpperCase() === currentFilter.toUpperCase();
             });
 
@@ -1326,7 +1379,8 @@
                 return formatCsvRow([dateStr, log.level || '', log.source || '', log.message || '']);
             });
 
-            triggerDownload([headers.join(","), ...rows].join("\n"), `dji_cloud_logs_local_${currentFilter.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
+            const suffix = sessionOnly ? 'session' : 'day';
+            triggerDownload([headers.join(","), ...rows].join("\n"), `dji_cloud_logs_local_${currentFilter.toLowerCase()}_${suffix}_${new Date().toISOString().slice(0, 10)}.csv`);
         }
 
         // ── MediaMTX Log Tab ──────────────────────────────────────────────────

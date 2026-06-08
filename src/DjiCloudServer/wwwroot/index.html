@@ -703,11 +703,47 @@
             }
         }
 
+        let isMqttConnected = false;
+        let isWsConnected = false;
         let isConnectionRegistered = false;
+
+        function checkAndCompleteConnection(token) {
+            if (window.djiBridge) {
+                if (isMqttConnected && isWsConnected) {
+                    onConnectionSuccess(token);
+                } else {
+                    printLog(`Esperando confirmación completa: MQTT=${isMqttConnected ? 'OK' : 'Pendiente'}, WebSocket=${isWsConnected ? 'OK' : 'Pendiente'}`, 'warn');
+                }
+            } else {
+                onConnectionSuccess(token);
+            }
+        }
+
+        // ── Setup de workspace + módulo map ─────────────────────────────────────
+        // Se extrae en función propia porque debe ejecutarse en CADA reconexión MQTT,
+        // no solo la primera vez. Si el MQTT se cae y vuelve, el módulo map necesita
+        // que el workspace esté configurado para reanudar el sync de elementos.
+        function setupWorkspaceAndMapModule(token) {
+            if (!window.djiBridge) return;
+            const workspaceId = serverConfig?.WorkspaceId || serverConfig?.workspaceId || "e3dea0f5-37f2-4d79-ae58-490af3228069";
+            try {
+                window.djiBridge.platformSetWorkspaceId(workspaceId);
+                window.djiBridge.platformSetInformation("DjiCloudServer", "USBA Sotomayor", "Servidor Local DJI Cloud");
+                window.djiBridge.apiSetToken(token);
+                window.djiBridge.platformLoadComponent("map", JSON.stringify({ userName: "Pilot", elementPreName: "" }));
+                window.djiBridge.platformLoadComponent("tsa", "{}");
+                printLog("✅ Workspace + módulo map/tsa configurados (sync RC↔Servidor activo)", 'success');
+            } catch (err) {
+                printLog(`⚠️ Error configurando workspace/map/tsa: ${err.message}`, 'warn');
+            }
+        }
 
         // Callback de éxito al conectarse
         function onConnectionSuccess(token) {
-            if (isConnectionRegistered) return;
+            // setupWorkspaceAndMapModule siempre se llama (idempotente)
+            setupWorkspaceAndMapModule(token);
+
+            if (isConnectionRegistered) return;  // lo de abajo solo una vez
             
             // Si la licencia aún no está verificada, intentar comprobar o verificar ahora
             if (!isLicenseVerified && window.djiBridge) {
@@ -739,33 +775,7 @@
             }
 
             isConnectionRegistered = true;
-            printLog("¡Conexión MQTT verificada con éxito!", 'success');
-            
-            try {
-                const workspaceId = "e3dea0f5-37f2-4d79-ae58-490af3228069";
-                
-                // 1. Establecer Workspace ID e Información de Plataforma (AHORA que estamos conectados)
-                printLog("Estableciendo Workspace ID...", 'info');
-                const wsRes = window.djiBridge.platformSetWorkspaceId(workspaceId);
-                const wsOk = logBridgeResult("platformSetWorkspaceId", wsRes);
-                
-                printLog("Estableciendo Información de Plataforma...", 'info');
-                const infoRes = window.djiBridge.platformSetInformation("DjiCloudServer", "USBA Sotomayor", "Servidor Local DJI Cloud");
-                const infoOk = logBridgeResult("platformSetInformation", infoRes);
-                
-                // 2. Establecer el token de la API
-                printLog(`Estableciendo Token de la API: ${token}...`, 'info');
-                const tokenRes = window.djiBridge.apiSetToken(token);
-                const tokenOk = logBridgeResult("apiSetToken", tokenRes);
-                
-                if (wsOk && infoOk && tokenOk) {
-                    printLog("¡Sesión registrada correctamente en el hardware!", 'success');
-                } else {
-                    printLog("⚠️ Algunos parámetros de sesión no pudieron registrarse. Revisa los errores anteriores.", 'warn');
-                }
-            } catch (err) {
-                printLog(`Error al registrar propiedades de la sesión: ${err.message}`, 'danger');
-            }
+            printLog("¡Conexión MQTT y WebSocket verificadas con éxito! Workspace y módulo map ya configurados.", 'success');
 
             // 3. Redirigir/Cerrar si la casilla está marcada
             const shouldRedirect = document.getElementById('auto-redirect').checked;
@@ -781,34 +791,106 @@
             }
         }
 
-        // Callback global para recibir estado de conexión MQTT desde djiBridge
+        // Callback global para recibir estado de conexión MQTT desde djiBridge.
+        // Se dispara en CADA conexión/reconexión de MQTT — llamamos siempre a
+        // setupWorkspaceAndMapModule para que el sync RC↔Servidor se restablezca
+        // aunque haya habido una caída de MQTT.
         window.onThingConnectCallback = function(res) {
+            printLog(`[MQTT Callback] Crudo recibido: ${res}`, 'info');
             try {
-                const response = typeof res === 'string' ? JSON.parse(res) : res;
-                printLog(`[MQTT Callback] Estado de conexión: ${JSON.stringify(response)}`, 'info');
-                
-                // Si la conexión es exitosa (la respuesta o los datos indican conexión)
-                const state = (response && response.data && (response.data.state === true || response.data.status === true)) 
-                           || (response && (response.status === true || response.state === true))
-                           || (response && response.code === 0 && response.data === true);
-                
+                let response = res;
+                if (typeof res === 'string') {
+                    try {
+                        response = JSON.parse(res);
+                    } catch (e) {
+                        // Si no es un JSON válido (ej: un string plano), mantener como string
+                        response = res;
+                    }
+                }
+
+                printLog(`[MQTT Callback] Parseado: ${typeof response === 'object' && response !== null ? JSON.stringify(response) : response}`, 'info');
+
+                // Detección extremadamente robusta y tolerante del éxito de conexión
+                let state = false;
+                if (response === true || response === 'true' || response === 1 || response === '1' || response === 'connected' || response === 'CONNECTED') {
+                    state = true;
+                } else if (typeof response === 'object' && response !== null) {
+                    if (response.code === 0) {
+                        if (response.data === true || response.data === 'true' || response.data === 1 || response.data === '1' || response.data === 'connected' || response.data === 'CONNECTED') {
+                            state = true;
+                        } else if (response.data && (response.data.state === true || response.data.state === 'true' || response.data.status === true || response.data.status === 'true' || response.data.state === 'connected' || response.data.status === 'connected')) {
+                            state = true;
+                        } else if (response.data === undefined || response.data === null || (typeof response.data === 'object' && Object.keys(response.data).length === 0)) {
+                            // code: 0 con datos vacíos también se considera éxito
+                            state = true;
+                        }
+                    } else if (response.status === true || response.status === 'true' || response.state === true || response.state === 'true' || response.status === 'connected' || response.state === 'connected') {
+                        state = true;
+                    } else if (response.data && (response.data.state === true || response.data.state === 'true' || response.data.status === true || response.data.status === 'true')) {
+                        state = true;
+                    }
+                }
+
                 if (state) {
+                    isMqttConnected = true;
                     const mqttConfig = serverConfig ? (serverConfig.mqtt || serverConfig.Mqtt || {}) : {};
                     const token = mqttConfig.token || mqttConfig.Token || "session_mock_token";
-                    onConnectionSuccess(token);
+                    // setupWorkspaceAndMapModule siempre, incluso en reconexiones
+                    setupWorkspaceAndMapModule(token);
+                    checkAndCompleteConnection(token);
+                } else {
+                    printLog(`[MQTT Callback] El estado no se reconoció como conexión exitosa.`, 'warn');
                 }
             } catch (err) {
-                printLog(`[MQTT Callback] Estado de conexión recibido: ${res}`, 'info');
+                printLog(`[MQTT Callback] Error al procesar callback: ${err.message}`, 'danger');
             }
         };
 
-        // Callback global para recibir estado de conexión WebSocket desde djiBridge
+        // Callback global para recibir estado de conexión WebSocket desde djiBridge.
+        // Según la spec DJI Cloud API (doc 18), platformSetWorkspaceId y la carga del
+        // módulo map deben ejecutarse después de que el WS conecte. Lo llamamos aquí
+        // (idempotente con la llamada que ya viene de onThingConnectCallback).
         window.onWsConnectCallback = function(res) {
+            printLog(`[WebSocket Callback] Crudo recibido: ${res}`, 'info');
             try {
-                const response = typeof res === 'string' ? JSON.parse(res) : res;
-                printLog(`[WebSocket Callback] Estado: ${JSON.stringify(response)}`, 'info');
+                let response = res;
+                if (typeof res === 'string') {
+                    try {
+                        response = JSON.parse(res);
+                    } catch (e) {
+                        response = res;
+                    }
+                }
+                printLog(`[WebSocket Callback] Parseado: ${typeof response === 'object' && response !== null ? JSON.stringify(response) : response}`, 'info');
+                
+                // Intentamos configurar el workspace y map module. Asumimos éxito si no es explícitamente un error.
+                let state = false;
+                if (response === true || response === 'true' || response === 1 || response === '1' || response === 'connected' || response === 'CONNECTED' || response === 'open' || response === 'OPEN') {
+                    state = true;
+                } else if (typeof response === 'object' && response !== null) {
+                    if (response.code === 0) {
+                        state = true;
+                    } else if (response.status === true || response.status === 'true' || response.state === true || response.state === 'true' || response.status === 'connected' || response.state === 'connected') {
+                        state = true;
+                    } else if (response.data && (response.data.state === true || response.data.state === 'true' || response.data.status === true || response.data.status === 'true')) {
+                        state = true;
+                    }
+                } else {
+                    // Si no es un valor falsy u objeto de error explícito, consideramos éxito para mayor tolerancia
+                    state = true;
+                }
+
+                if (state) {
+                    isWsConnected = true;
+                    const mqttConfig = serverConfig ? (serverConfig.mqtt || serverConfig.Mqtt || {}) : {};
+                    const token = mqttConfig.token || mqttConfig.Token || "session_mock_token";
+                    setupWorkspaceAndMapModule(token);
+                    checkAndCompleteConnection(token);
+                } else {
+                    printLog(`[WebSocket Callback] El estado no se reconoció como conexión WebSocket exitosa.`, 'warn');
+                }
             } catch (err) {
-                printLog(`[WebSocket Callback] Estado recibido: ${res}`, 'info');
+                printLog(`[WebSocket Callback] Error al procesar callback: ${err.message}`, 'danger');
             }
         };
 
@@ -819,6 +901,8 @@
                 autoConnectTimer = null;
             }
 
+            isMqttConnected = false;
+            isWsConnected = false;
             isConnectionRegistered = false;
             const host = document.getElementById('mqtt-host').value;
             const user = document.getElementById('mqtt-user').value;
@@ -902,6 +986,15 @@
                     printLog(`Cargando componente 'ws' con host: ${wsHost}...`, 'info');
                     const wsRes = window.djiBridge.platformLoadComponent("ws", JSON.stringify(wsParam));
                     logBridgeResult("Componente 'ws'", wsRes);
+                    // wsConnect() eliminado: platformLoadComponent("ws", {host, connectCallback}) ya
+                    // abre la conexión WS internamente. Llamar wsConnect() además abría una segunda
+                    // conexión simultánea que causaba que DJI Pilot descartara ambas (error 615000 / ciclo).
+
+                    // NOTA: el componente 'map' NO se carga aquí.
+                    // Según la especificación DJI Cloud API, el módulo Map debe cargarse
+                    // DESPUÉS de que platformSetWorkspaceId() haya sido llamado — de lo contrario
+                    // el RC no sabe con qué workspace sincronizar y los elementos no llegan al servidor.
+                    // La carga real ocurre en onThingConnectCallback(), tras setear el workspace.
 
                     // 5. Cargar componente 'media'
                     const mediaParam = {
@@ -931,27 +1024,15 @@
                     const connectRes = window.djiBridge.thingConnect(user, pass, "onThingConnectCallback");
                     logBridgeResult("thingConnect", connectRes);
 
-                    // 8. Sondeo del estado de conexión para salir automáticamente
-                    let checkInterval = setInterval(() => {
-                        try {
-                            if (window.djiBridge && window.djiBridge.thingGetConnectState && window.djiBridge.thingGetConnectState()) {
-                                clearInterval(checkInterval);
-                                onConnectionSuccess(token);
-                            }
-                        } catch (err) {
-                            // Ignorar errores de llamada en el intervalo
-                        }
-                    }, 500);
-                    
-                    // Cancelar sondeo después de 20 segundos y avisar si falló
+                    // 8. Timeout si onThingConnectCallback no dispara con éxito en 20 s
+                    // NOTA: NO usar thingGetConnectState() para detectar conexión real — solo indica
+                    // que el módulo está cargado, no que MQTT está conectado al broker.
+                    // La conexión real llega por onThingConnectCallback con state=true.
                     setTimeout(() => {
-                        clearInterval(checkInterval);
-                        try {
-                            if (window.djiBridge && window.djiBridge.thingGetConnectState && !window.djiBridge.thingGetConnectState()) {
-                                printLog("Tiempo de espera agotado. No se pudo establecer la conexión MQTT.", 'danger');
-                                printLog("Por favor, asegúrate de que el puerto 1883 esté abierto en el Firewall de tu PC.", 'warn');
-                            }
-                        } catch (e) {}
+                        if (!isConnectionRegistered) {
+                            printLog("⏱ Tiempo de espera agotado (20 s). MQTT no confirmado por el dron.", 'danger');
+                            printLog("Verifica que: (1) el dron esté encendido y enlazado al mando, (2) el broker MQTT sea accesible en " + host + ":1883.", 'warn');
+                        }
                     }, 20000);
 
                     // Mensaje visual de conexión en curso
@@ -966,7 +1047,7 @@
                 printLog("JSBridge de DJI no detectado. Iniciando simulación...", 'warn');
                 
                 printLog(`[Simulación] platformVerifyLicense("${appId}", "••••••••", "••••••••")`, 'info');
-                printLog(`[Simulación] platformSetWorkspaceId("e3dea0f5-37f2-4d79-ae58-490af3228069")`, 'info');
+                printLog(`[Simulación] platformSetWorkspaceId("${serverConfig?.WorkspaceId || serverConfig?.workspaceId || "e3dea0f5-37f2-4d79-ae58-490af3228069"}")`, 'info');
                 printLog(`[Simulación] platformLoadComponent("thing", ...)`, 'info');
                 printLog(`[Simulación] platformLoadComponent("api", ...)`, 'info');
                 printLog(`[Simulación] platformLoadComponent("ws", ...)`, 'info');
