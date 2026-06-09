@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+<name>Servidumbres aeronáuticas — Base Álvarez Sotomayor (Viator, Almería)</name>
+<description><![CDATA[
+<b>Plano de servidumbres con 5 capas + ZOUAS/ZOTER propuestas</b><br/>
+1. ZIDN — RD 703/2014<br/>
+2. LED36 — Álvarez Sotomayor (AIP ENR 5.1)<br/>
+3. CTR Almería (AIP AD 2 LEAM)<br/>
+4. ATZ Almería (8 km del ARP)<br/>
+5. OLS — Superficies de limitación de obstáculos (Anexo 14 OACI, simplificadas)<br/>
++ ZOUAS y ZOTER propuestas<br/>
+Sistema: WGS-84
+]]></description>
+
+<Style id="zidn">
+<LineStyle><color>ff0000a0</color><width>2</width></LineStyle>
+<PolyStyle><color>4d0000a0</color></PolyStyle>
+</Style>
+
+<Style id="led36">
+<LineStyle><color>ff0000ff</color><width>3</width></LineStyle>
+<PolyStyle><color>500000ff</color></PolyStyle>
+</Style>
+
+<Style id="ctr">
+<LineStyle><color>ffff8000</color><width>2</width></LineStyle>
+<PolyStyle><color>40ff8000</color></PolyStyle>
+</Style>
+
+<Style id="atz">
+<LineStyle><color>ffff00ff</color><width>2</width></LineStyle>
+<PolyStyle><color>30ff00ff</color></PolyStyle>
+</Style>
+
+<Style id="ols_horiz">
+<LineStyle><color>ff00ffff</color><width>1</width></LineStyle>
+<PolyStyle><color>2000ffff</color></PolyStyle>
+</Style>
+
+<Style id="ols_conical">
+<LineStyle><color>ff00bfff</color><width>1</width></LineStyle>
+<PolyStyle><color>2000bfff</color></PolyStyle>
+</Style>
+
+<Style id="ols_apch">
+<LineStyle><color>ff00bf00</color><width>2</width></LineStyle>
+<PolyStyle><color>3000bf00</color></PolyStyle>
+</Style>
+
+<Style id="zouas">
+<LineStyle><color>ff00ff00</color><width>3</width></LineStyle>
+<PolyStyle><color>8000ff00</color></PolyStyle>
+</Style>
+
+<Style id="zoter">
+<LineStyle><color>ff00ff80</color><width>2</width></LineStyle>
+<PolyStyle><color>4000ff80</color></PolyStyle>
+</Style>
+
+<Style id="punto">
+<IconStyle><scale>1.0</scale>
+<Icon><href>http://maps.google.com/mapfiles/kml/shapes/triangle.png</href></Icon>
+</IconStyle>
+<LabelStyle><scale>0.8</scale></LabelStyle>
+</Style>
+
+<Style id="navaid">
+<IconStyle><scale>0.9</scale>
+<Icon><href>http://maps.google.com/mapfiles/kml/shapes/target.png</href></Icon>
+</IconStyle>
+<LabelStyle><scale>0.7</scale></LabelStyle>
+</Style>
+
+<Style id="arp">
+<IconStyle><scale>1.2</scale>
+<Icon><href>http://maps.google.com/mapfiles/kml/shapes/airports.png</href></Icon>
+</IconStyle>
+<LabelStyle><scale>0.9</scale></LabelStyle>
+</Style>
+
+<Folder><name>1. ZIDN — Zona de Interés para la Defensa Nacional</name>
+<description><![CDATA[
+Real Decreto 703/2014, de 1 de agosto (BOE 5-sep-2014).<br/>
+Superficie declarada: <b>6.129,66 ha</b><br/>
+Polígono reconstruido a partir de los 504 puntos de vallado del anexo (UTM 30 / WGS-84).<br/>
+<i>Nota: reconstrucción mediante envolvente cóncava. Para el ESV definitivo emplear el shapefile catastral del MINISDEF.</i>
+]]></description>
+<Placemark>
+<name>Recinto ZIDN (reconstrucción ~67 km² sobre 61,3 km² oficiales)</name>
+<styleUrl>#zidn</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.4146459,36.8979630,0 -2.4165915,36.9016085,0 -2.4151290,36.9071167,0 -2.4150767,36.9078475,0 -2.4147895,36.9104693,0 -2.4146773,36.9122247,0 -2.4153178,36.9167025,0 -2.4103436,36.9267334,0 -2.4098343,36.9282858,0 -2.4096954,36.9288188,0 -2.4089464,36.9327606,0 -2.4068963,36.9351789,0 -2.4061994,36.9361363,0 -2.4027590,36.9402916,0 -2.3979199,36.9526007,0 -2.3974607,36.9533612,0 -2.3971224,36.9539827,0 -2.3964424,36.9547551,0 -2.3959720,36.9550507,0 -2.3844623,36.9601077,0 -2.3837867,36.9605199,0 -2.3764003,36.9637560,0 -2.3672441,36.9774552,0 -2.3653917,36.9872405,0 -2.3650400,36.9875681,0 -2.3646541,36.9878708,0 -2.3625783,36.9896223,0 -2.3618505,36.9898508,0 -2.3528565,36.9934514,0 -2.3518121,36.9936306,0 -2.3482397,36.9943450,0 -2.3474032,36.9945867,0 -2.3467048,36.9944293,0 -2.3452259,36.9941358,0 -2.3421014,36.9936619,0 -2.3413480,36.9935535,0 -2.3399304,36.9931602,0 -2.3315289,36.9881760,0 -2.3283322,36.9855899,0 -2.3274189,36.9846768,0 -2.3269585,36.9842544,0 -2.3263162,36.9833726,0 -2.3259802,36.9827554,0 -2.3206846,36.9761092,0 -2.3202029,36.9755862,0 -2.3195396,36.9744121,0 -2.3137248,36.9678313,0 -2.3132279,36.9662810,0 -2.3134337,36.9656293,0 -2.3140466,36.9648076,0 -2.3197023,36.9380091,0 -2.3200690,36.9301109,0 -2.3200587,36.9290053,0 -2.3199644,36.9275309,0 -2.3199058,36.9263906,0 -2.3202106,36.9239640,0 -2.3208739,36.9212057,0 -2.3210872,36.9204471,0 -2.3220376,36.9185956,0 -2.3236081,36.9154369,0 -2.3236469,36.9153632,0 -2.3267759,36.9137981,0 -2.3295930,36.9120779,0 -2.3317104,36.9112776,0 -2.3318985,36.9111958,0 -2.3336752,36.9108569,0 -2.3346879,36.9108319,0 -2.3365653,36.9107820,0 -2.3404472,36.9106243,0 -2.3408720,36.9105806,0 -2.3443333,36.9103934,0 -2.3486486,36.9099943,0 -2.3496589,36.9098268,0 -2.3588549,36.9065910,0 -2.3605964,36.9055945,0 -2.3609732,36.9053684,0 -2.3673663,36.9035250,0 -2.3816580,36.8946796,0 -2.3822954,36.8937211,0 -2.3844283,36.8907232,0 -2.3856622,36.8895217,0 -2.3889089,36.8875444,0 -2.3932687,36.8872666,0 -2.3935023,36.8872479,0 -2.3960374,36.8870995,0 -2.3964078,36.8870905,0 -2.3993576,36.8870126,0 -2.3997583,36.8870057,0 -2.4022373,36.8868487,0 -2.4035127,36.8867649,0 -2.4050611,36.8868006,0 -2.4054197,36.8868719,0 -2.4066940,36.8875146,0 -2.4074505,36.8882252,0 -2.4097721,36.8900252,0 -2.4121333,36.8939716,0 -2.4137696,36.8958754,0 -2.4138317,36.8959776,0 -2.4146459,36.8979630,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+</Folder>
+
+<Folder><name>2. LED36 — Zona restringida Álvarez Sotomayor</name>
+<description><![CDATA[
+AIP-España, ENR 5.1.<br/>
+<b>Límites verticales:</b> SFC – FL130<br/>
+<b>Régimen:</b> Área reservable H24 (AUP/UUP). Otros límites por NOTAM.<br/>
+<b>Actividad:</b> Ejercicios de tiro terrestre; lanzamiento de cargas.<br/>
+<b>Coordinación:</b> ALMERIA TWR.<br/>
+<b>Operador:</b> MINISDEF / MADOC — cmtsotomayor@mde.es — +34 950 181 309
+]]></description>
+<Placemark>
+<name>LED36</name>
+<styleUrl>#led36</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.3747222,37.0211111,0 -2.3319444,36.9700000,0 -2.3636111,36.8847222,0 -2.3877778,36.8763889,0 -2.4297222,36.8972222,0 -2.3747222,37.0211111,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+</Folder>
+
+<Folder><name>3. CTR ALMERÍA — Zona de control</name>
+<description><![CDATA[
+AIP-España, AD 2 LEAM.<br/>
+<b>Clase:</b> D<br/>
+<b>Límites verticales:</b> SFC – 1000 ft AGL/AMSL (lo que resulte mayor)<br/>
+<b>Dependencia:</b> ALMERIA TWR (118.350 MHz)
+]]></description>
+<Placemark>
+<name>CTR Almería</name>
+<styleUrl>#ctr</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.5975000,36.8386111,0 -2.4094444,36.8922222,0 -2.2900000,36.9844444,0 -2.2136111,36.9650000,0 -2.1613889,36.8225000,0 -2.2022222,36.7216667,0 -2.3175000,36.8025000,0 -2.3925000,36.7413889,0 -2.5975000,36.8386111,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+</Folder>
+
+<Folder><name>4. ATZ ALMERÍA — Zona de tránsito de aeródromo</name>
+<description><![CDATA[
+AIP-España, AD 2 LEAM.<br/>
+<b>Clase:</b> D<br/>
+<b>Límites laterales:</b> círculo de 8 km de radio centrado en el ARP<br/>
+<b>Límites verticales:</b> SFC – 3000 ft HGT<br/>
+<b>Dependencia:</b> ALMERIA TWR
+]]></description>
+<Placemark>
+<name>ATZ Almería (8 km)</name>
+<styleUrl>#atz</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.3700000,36.9158346,0 -2.3621572,36.9155606,0 -2.3543743,36.9147406,0 -2.3467106,36.9133809,0 -2.3392246,36.9114918,0 -2.3319735,36.9090878,0 -2.3250125,36.9061872,0 -2.3183948,36.9028122,0 -2.3121707,36.8989885,0 -2.3063877,36.8947453,0 -2.3010897,36.8901148,0 -2.2963172,36.8851325,0 -2.2921063,36.8798363,0 -2.2884891,36.8742666,0 -2.2854930,36.8684659,0 -2.2831406,36.8624782,0 -2.2814498,36.8563493,0 -2.2804332,36.8501258,0 -2.2800985,36.8438550,0 -2.2804479,36.8375848,0 -2.2814787,36.8313628,0 -2.2831829,36.8252364,0 -2.2855474,36.8192521,0 -2.2885539,36.8134555,0 -2.2921796,36.8078907,0 -2.2963967,36.8025998,0 -2.3011730,36.7976232,0 -2.3064723,36.7929987,0 -2.3122540,36.7887613,0 -2.3184743,36.7849433,0 -2.3250858,36.7815736,0 -2.3320383,36.7786779,0 -2.3392790,36.7762781,0 -2.3467529,36.7743924,0 -2.3544032,36.7730352,0 -2.3621719,36.7722167,0 -2.3700000,36.7719432,0 -2.3778281,36.7722167,0 -2.3855968,36.7730352,0 -2.3932471,36.7743924,0 -2.4007210,36.7762781,0 -2.4079617,36.7786779,0 -2.4149142,36.7815736,0 -2.4215257,36.7849433,0 -2.4277460,36.7887613,0 -2.4335277,36.7929987,0 -2.4388270,36.7976232,0 -2.4436033,36.8025998,0 -2.4478204,36.8078907,0 -2.4514461,36.8134555,0 -2.4544526,36.8192521,0 -2.4568171,36.8252364,0 -2.4585213,36.8313628,0 -2.4595521,36.8375848,0 -2.4599015,36.8438550,0 -2.4595668,36.8501258,0 -2.4585502,36.8563493,0 -2.4568594,36.8624782,0 -2.4545070,36.8684659,0 -2.4515109,36.8742666,0 -2.4478937,36.8798363,0 -2.4436828,36.8851325,0 -2.4389103,36.8901148,0 -2.4336123,36.8947453,0 -2.4278293,36.8989885,0 -2.4216052,36.9028122,0 -2.4149875,36.9061872,0 -2.4080265,36.9090878,0 -2.4007754,36.9114918,0 -2.3932894,36.9133809,0 -2.3856257,36.9147406,0 -2.3778428,36.9155606,0 -2.3700000,36.9158346,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+</Folder>
+
+<Folder><name>5. OLS LEAM — Superficies Anexo 14 OACI (simplificadas)</name>
+<description><![CDATA[
+Representación horizontal aproximada de las superficies de limitación de obstáculos.<br/>
+Pista código 4 (3.165 m), elevación AD 70 ft (21 m).<br/>
+<i>Capas didácticas; para cálculos de penetración usar dataset oficial de obstáculos AENA.</i>
+]]></description>
+
+<Placemark>
+<name>Inner Horizontal Surface (radio 4000 m, +45 m sobre elev AD)</name>
+<styleUrl>#ols_horiz</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.3700000,36.8798618,0 -2.3660804,36.8797248,0 -2.3621908,36.8793150,0 -2.3583606,36.8786354,0 -2.3546191,36.8776913,0 -2.3509949,36.8764899,0 -2.3475154,36.8750402,0 -2.3442073,36.8733533,0 -2.3410958,36.8714422,0 -2.3382044,36.8693213,0 -2.3355553,36.8670068,0 -2.3331685,36.8645164,0 -2.3310623,36.8618690,0 -2.3292527,36.8590847,0 -2.3277533,36.8561849,0 -2.3265756,36.8531915,0 -2.3257285,36.8501273,0 -2.3252184,36.8470157,0 -2.3250492,36.8438804,0 -2.3252221,36.8407453,0 -2.3257357,36.8376341,0 -2.3265862,36.8345705,0 -2.3277669,36.8315780,0 -2.3292689,36.8286792,0 -2.3310806,36.8258961,0 -2.3331884,36.8232500,0 -2.3355761,36.8207610,0 -2.3382256,36.8184480,0 -2.3411166,36.8163286,0 -2.3442272,36.8144189,0 -2.3475338,36.8127334,0 -2.3510111,36.8112849,0 -2.3546327,36.8100845,0 -2.3583712,36.8091412,0 -2.3621980,36.8084623,0 -2.3660841,36.8080528,0 -2.3700000,36.8079160,0 -2.3739159,36.8080528,0 -2.3778020,36.8084623,0 -2.3816288,36.8091412,0 -2.3853673,36.8100845,0 -2.3889889,36.8112849,0 -2.3924662,36.8127334,0 -2.3957728,36.8144189,0 -2.3988834,36.8163286,0 -2.4017744,36.8184480,0 -2.4044239,36.8207610,0 -2.4068116,36.8232500,0 -2.4089194,36.8258961,0 -2.4107311,36.8286792,0 -2.4122331,36.8315780,0 -2.4134138,36.8345705,0 -2.4142643,36.8376341,0 -2.4147779,36.8407453,0 -2.4149508,36.8438804,0 -2.4147816,36.8470157,0 -2.4142715,36.8501273,0 -2.4134244,36.8531915,0 -2.4122467,36.8561849,0 -2.4107473,36.8590847,0 -2.4089377,36.8618690,0 -2.4068315,36.8645164,0 -2.4044447,36.8670068,0 -2.4017956,36.8693213,0 -2.3989042,36.8714422,0 -2.3957927,36.8733533,0 -2.3924846,36.8750402,0 -2.3890051,36.8764899,0 -2.3853809,36.8776913,0 -2.3816394,36.8786354,0 -2.3778092,36.8793150,0 -2.3739196,36.8797248,0 -2.3700000,36.8798618,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+
+<Placemark>
+<name>Conical Surface — borde exterior (10000 m, pendiente 5%, hasta +100 m)</name>
+<styleUrl>#ols_conical</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.3700000,36.9338210,0 -2.3601942,36.9334784,0 -2.3504633,36.9324532,0 -2.3408816,36.9307531,0 -2.3315223,36.9283913,0 -2.3224567,36.9253856,0 -2.3137542,36.9217592,0 -2.3054810,36.9175396,0 -2.2977003,36.9127590,0 -2.2904713,36.9074541,0 -2.2838491,36.9016651,0 -2.2778841,36.8954363,0 -2.2726215,36.8888153,0 -2.2681013,36.8818524,0 -2.2643577,36.8746008,0 -2.2614192,36.8671157,0 -2.2593077,36.8594541,0 -2.2580392,36.8516745,0 -2.2576231,36.8438360,0 -2.2580622,36.8359983,0 -2.2593529,36.8282211,0 -2.2614853,36.8205634,0 -2.2644427,36.8130836,0 -2.2682025,36.8058385,0 -2.2727359,36.7988832,0 -2.2780082,36.7922705,0 -2.2839793,36.7860506,0 -2.2906035,36.7802708,0 -2.2978305,36.7749750,0 -2.3056052,36.7702034,0 -2.3138687,36.7659922,0 -2.3225580,36.7623732,0 -2.3316072,36.7593741,0 -2.3409477,36.7570176,0 -2.3505085,36.7553214,0 -2.3602172,36.7542985,0 -2.3700000,36.7539567,0 -2.3797828,36.7542985,0 -2.3894915,36.7553214,0 -2.3990523,36.7570176,0 -2.4083928,36.7593741,0 -2.4174420,36.7623732,0 -2.4261313,36.7659922,0 -2.4343948,36.7702034,0 -2.4421695,36.7749750,0 -2.4493965,36.7802708,0 -2.4560207,36.7860506,0 -2.4619918,36.7922705,0 -2.4672641,36.7988832,0 -2.4717975,36.8058385,0 -2.4755573,36.8130836,0 -2.4785147,36.8205634,0 -2.4806471,36.8282211,0 -2.4819378,36.8359983,0 -2.4823769,36.8438360,0 -2.4819608,36.8516745,0 -2.4806923,36.8594541,0 -2.4785808,36.8671157,0 -2.4756423,36.8746008,0 -2.4718987,36.8818524,0 -2.4673785,36.8888153,0 -2.4621159,36.8954363,0 -2.4561509,36.9016651,0 -2.4495287,36.9074541,0 -2.4422997,36.9127590,0 -2.4345190,36.9175396,0 -2.4262458,36.9217592,0 -2.4175433,36.9253856,0 -2.4084777,36.9283913,0 -2.3991184,36.9307531,0 -2.3895367,36.9324532,0 -2.3798058,36.9334784,0 -2.3700000,36.9338210,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+
+<Placemark>
+<name>Approach Surface RWY 25 (precisión CAT I, 15000 m)</name>
+<styleUrl>#ols_apch</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.3527830,36.8495957,0 -2.1988768,36.9082551,0 -2.1831059,36.8669717,0 -2.3517978,36.8470155,0 -2.3527830,36.8495957,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+
+<Placemark>
+<name>Approach Surface RWY 07 (no-precisión, 6000 m)</name>
+<styleUrl>#ols_apch</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.3858014,36.8386707,0 -2.4473242,36.8151623,0 -2.4542104,36.8332257,0 -2.3867853,36.8412512,0 -2.3858014,36.8386707,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+</Folder>
+
+<Folder><name>6. Zonas propuestas para operación UAS X10D</name>
+<description><![CDATA[
+Propuesta de segregación temporal de espacio aéreo (IT 20/2026, apartado decimotercero).<br/>
+<b>Clase de UAS:</b> I micro (Skydio X10D, MTOW 2,49 kg)<br/>
+<b>Separación mínima clase I:</b> 1,2 km lateral (1 min a 72 km/h); 200 ft o 500 ft AGL vertical.
+]]></description>
+
+<Placemark>
+<name>ZOUAS — Zona de Operación para UAS</name>
+<styleUrl>#zouas</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.4075000,36.8883333,0 -2.4100000,36.8900000,0 -2.4094444,36.8902778,0 -2.4097222,36.8925000,0 -2.4122222,36.8938889,0 -2.4138889,36.8958333,0 -2.4147222,36.8980556,0 -2.4138889,36.8958333,0 -2.4152778,36.8997222,0 -2.4133333,36.9008333,0 -2.4116667,36.9016667,0 -2.4127778,36.9022222,0 -2.4119444,36.9030556,0 -2.4108333,36.9027778,0 -2.4075000,36.9025000,0 -2.4047222,36.9016667,0 -2.4047222,36.9005556,0 -2.4033333,36.9005556,0 -2.4027778,36.8988889,0 -2.4063889,36.8950000,0 -2.4066667,36.8938889,0 -2.4061111,36.8933333,0 -2.4055556,36.8927778,0 -2.4038889,36.8919444,0 -2.4027778,36.8908333,0 -2.4027778,36.8902778,0 -2.4044444,36.8897222,0 -2.4044444,36.8891667,0 -2.4058333,36.8886111,0 -2.4063889,36.8883333,0 -2.4075000,36.8883333,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+
+<Placemark>
+<name>ZOTER — Zona Temporalmente Restringida para Operación de UAS</name>
+<styleUrl>#zoter</styleUrl>
+<Polygon><outerBoundaryIs><LinearRing><coordinates>
+-2.4086111,36.8875000,0 -2.4069444,36.8866667,0 -2.4055556,36.8866667,0 -2.4019444,36.8880556,0 -2.4019444,36.8883333,0 -2.4005556,36.8891667,0 -2.4008333,36.8913889,0 -2.4022222,36.8936111,0 -2.4038889,36.8941667,0 -2.4002778,36.8983333,0 -2.4013889,36.9019444,0 -2.4025000,36.9019444,0 -2.4027778,36.9027778,0 -2.4072222,36.9041667,0 -2.4097222,36.9047222,0 -2.4125000,36.9052778,0 -2.4158333,36.9016667,0 -2.4177778,36.9000000,0 -2.4155556,36.8966667,0 -2.4141667,36.8933333,0 -2.4113889,36.8911111,0 -2.4113889,36.8886111,0 -2.4086111,36.8875000,0 -2.4086111,36.8875000,0
+</coordinates></LinearRing></outerBoundaryIs></Polygon>
+</Placemark>
+</Folder>
+
+<Folder><name>Puntos de referencia</name>
+<Placemark>
+<name>ARP LEAM — Aeropuerto de Almería</name>
+<styleUrl>#arp</styleUrl>
+<description>36°50'38"N 002°22'12"W · Elev 70 ft / 21 m</description>
+<Point><coordinates>-2.3700000,36.8438889,0</coordinates></Point>
+</Placemark>
+<Placemark>
+<name>THR 07</name>
+<styleUrl>#punto</styleUrl>
+<description>Umbral pista 07 (DTHR 115 m)</description>
+<Point><coordinates>-2.3856485,36.8401185,0</coordinates></Point>
+</Placemark>
+<Placemark>
+<name>THR 25</name>
+<styleUrl>#punto</styleUrl>
+<description>Umbral pista 25 — ILS CAT I</description>
+<Point><coordinates>-2.3529353,36.8481479,0</coordinates></Point>
+</Placemark>
+<Placemark>
+<name>VOR/DME AMR</name>
+<styleUrl>#navaid</styleUrl>
+<description>114.100 MHz / CH 88X — H24 — 36°49'59.4"N 002°15'33.9"W</description>
+<Point><coordinates>-2.2594167,36.8331667,0</coordinates></Point>
+</Placemark>
+<Placemark>
+<name>NDB AMN</name>
+<styleUrl>#navaid</styleUrl>
+<description>310.000 kHz — COV 25 NM — 36°50'54.1"N 002°22'41.5"W</description>
+<Point><coordinates>-2.3781944,36.8483611,0</coordinates></Point>
+</Placemark>
+<Placemark>
+<name>NDB L 284 AM</name>
+<styleUrl>#navaid</styleUrl>
+<description>284.000 kHz — Locator — 36°52'33.0"N 002°14'23.6"W</description>
+<Point><coordinates>-2.2398889,36.8758333,0</coordinates></Point>
+</Placemark>
+</Folder>
+
+</Document>
+</kml>

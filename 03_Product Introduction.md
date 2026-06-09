@@ -1,0 +1,33 @@
+# Product Introduction
+
+2025-03-19
+
+4.1 Ratings
+
+11 customers rated
+
+[Github Edit](https://github.com/dji-sdk/Cloud-API-Doc/blob/master/docs/en/10.overview/10.product-introduction.md) 
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/overview/product-introduction.html#introduction)Introduction
+
+At present, for DJI drones to access the third-party cloud platform, it is mainly based on MSDK to develop a custom App, and then define a private cloud communication protocol to connect to the cloud platform. For developers whose core business is cloud platform and drone is only one of the hardware devices, developing an App based on MSDK requires a lot of work and investment, and they also need to spend a lot of energy on drone functional interface adaptation, resulting in the relatively slow development progress of the overall scheme.
+
+The Cloud API is mainly aimed at users without in-depth App customization requirements. DJI Pilot 2 can be directly used to communicate with its own cloud platform, enabling developers to focus more on the development of the Cloud Server.
+
+![](https://terra-1-g.djicdn.com/84f990b0bbd145e6a3930de0c55d3b2b/admin/doc/4114c459-413d-4b48-82ed-35fb037751ce.png)  
+
+Existing three-party cloud access topology
+
+![](https://terra-1-g.djicdn.com/84f990b0bbd145e6a3930de0c55d3b2b/admin/doc/dbfd9039-bea1-4e04-a7a0-d04ecd294c25.png)  
+
+Cloud API access to third-party cloud topology
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/overview/product-introduction.html#core-ideology)Core Ideology
+
+DJI Cloud API mainly uses the HTTPS, WebSocket and MQTT protocol commonly used in the industry to abstract the capability of the drone into an Internet of things device. Developers can easily develop logic based on the capability of the thing model of the hardware device, without having to care about the complex flight control problems of the drone itself.
+
+DJI Pilot 2 also has a Webview H5 page, which can be customized by developers to meet their business needs, giving developers more flexibility in defining their business functions.
+
+The Cloud API ensures that each DJI industry device (drone model, Remote Controller and so on) has a standard thing model file. The functional interface protocol is the same in each device so that developers only need to implement it once, without having to adapt it once with each new device release.
+
+![](https://terra-1-g.djicdn.com/84f990b0bbd145e6a3930de0c55d3b2b/admin/doc/308baa25-3222-49c6-94fc-03f94c9f67b5.png)

@@ -1,0 +1,173 @@
+# Source Code Deployment Steps
+
+2025-03-19
+
+3 Ratings
+
+8 customers rated
+
+[Github Edit](https://github.com/dji-sdk/Cloud-API-Doc/blob/master/docs/en/20.quick-start/20.source-code-deployment-steps.md) 
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#register-as-a-dji-developer)Register as a DJI Developer
+
+Register for a DJI Developer account [here](https://account.dji.com/register?appId=dji_sdk&backUrl=https%3A%2F%2Fdeveloper.dji.com%2Fuser&locale=en_US).
+
+During the registration process, email information and a credit card or phone number will need to be supplied to verify the registration. Any credit card information given will only be used for verification and will not be charged.
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#generate-a-license)Generate a License
+
+When calling a Cloud API interface, you first need to verify the interface through license to ensure the availability of subsequent interfaces. The program only needs to call it once at the beginning, and then all the interfaces can be used.
+
+To create a license for an application:
+
+Go to the DJI developer [Developer Center](https://developer.dji.com/user)
+
+- Select the "Apps" tab on the left.
+- Select the "Create App" button on the right.
+- Select App Type as Cloud API, enter APP Name, Catagory and Description.
+- An application activation email will be sent to complete license generation.
+- The App ID, App Key and App License will appear in the developer center and can be copied and pasted into the frontend configuration file (src/api/http/config.ts).
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#build-front-end-service-environment)Build Front-end Service Environment
+
+### [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#install-node-js-and-npm)Install Node.js and Npm
+
+Installation tutorial: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm
+
+### [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#launch-front-end-source-code)Launch Front-end Source Code
+
+1. Sample code: https://github.com/dji-sdk/Cloud-API-Demo-Web
+
+2. Open the source code using the IDE.
+   
+   ​ ![image-20220321170752012](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/dd63be1b-1d0e-4694-9b83-766677b83a63.png)
+
+3. Modify the parameters in the configuration file (src/api/http/config.ts) and enter the appId, appKey and appLicense applied for on the developer website.
+
+> **Note:**
+> 
+> 1. If the live stream function is not used, only baseURL and websocketURL need to be set first.
+> 2. If the map is in need, you should apply for amapKey on the official website of Gaode Map.
+> 3. rtmp parameter is the stream server address.
+
+​ ![image-20220321172025515](https://terra-sz-hc1pro-cloudapi.oss-cn-shenzhen.aliyuncs.com/c0af9fe0d7eb4f35a8fe5b695e4d0b96/image/GTScreenshot_20220623_193925.png)
+
+4. Open the console at the root of the project and run the command to install the dependencies.
+   
+   ```
+   npm install
+   ```
+
+5. If the installation is complete you will see a node_modules directory in the root directory.
+
+6. Run the command to start the service.
+   
+   ```
+   npm run serve
+   ```
+   
+   ![image-20220321173716171](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/c12921d0-6d32-48cf-b75b-456487c1cc80.png)
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#build-back-end-service-environment)Build Back-end Service Environment
+
+### [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#install-java)Install Java
+
+Installation tutorial: https://www.java.com/en/download/help/index_installing.html
+
+### [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#install-emqx)Install EMQX
+
+Installation tutorial: https://www.emqx.io/docs/en/v4.4/
+
+### [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#install-mysql)Install MySQL
+
+Installation tutorial:https://dev.mysql.com/doc/refman/8.0/en/installing.html
+
+### [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#install-redis)Install Redis
+
+Installation tutorial:https://redis.io/docs/getting-started/
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#initialize-the-database)Initialize the Database
+
+- Login MySQL.
+  
+  ```
+  mysql -u username -p
+  ```
+
+- Import the initialization file "cloud_sample.sql" from the sql directory in the source code.
+  
+  ```
+  source "path to cloud_sample.sql file"
+  ```
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#launch-back-end-source-code)Launch Back-end Source Code
+
+1. Sample code: https://github.com/dji-sdk/DJI-Cloud-API-Demo
+
+2. Open the source code using the IDE.
+   
+   ​ ![GTScreenshot\_20220320\_202255](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/3c1dd0bf-59aa-43dd-9a31-c881ece14f58.png)
+
+3. As Lombok is used in the project, the Lombok plugin needs to be installed in IDEA's Plugin Marketplace.
+   
+   - ​ Open **Preferences**
+     
+     ​ ![image-20220322185756393.png](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/e4e44ae7-0382-41fa-964f-0422cdb0cae9.png)
+   
+   - Then select **Plugins** -> **Marketplace**, search for **Lombok** to install, and restart the project after installation.
+     
+     ​ ![image-20220322190132872](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/ddb8d9e5-7e48-416d-a197-09eee3625270.png)
+
+4. Open the configuration file (src/main/resources/application.yml) and modify the MySQL configuration, the MQTT configuration, and the Redis configuration in the configuration file. If you don't use the media library and wayline library, you can do so without configuring an object storage server.
+
+> **Note:**
+> 
+> If MQTT does not use anonymous login, you will also need to change the MQTT account name and password in the database, in the manage_user table.
+
+​ ![image-20220623182157396](https://terra-1-g.djicdn.com/84f990b0bbd145e6a3930de0c55d3b2b/admin/doc/b799b5bb-20d4-4924-b174-1c138c09f618.png)
+
+5. Configuring startup.
+   
+   ![image-20220320213028442](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/5468572b-7058-4659-8e2e-c68421a89565.jpeg)
+   
+   ![image-20220320210908780](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/693f238d-155e-44ea-af07-b0a4b992d8d2.jpeg)
+
+6. Launch project.
+   
+   ​ ![image-20220320211902117](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/ec7180f1-1c09-48d3-a3d9-d7da0fbec612.jpeg)
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#login-in-pilot-2)Login in Pilot 2
+
+1. Open pilot 2, go to the main page and click on Cloud Services to access it.
+   
+   ​ ![GTScreenshot\_20220321\_232931.png](https://terra-sz-hc1pro-cloudapi.oss-cn-shenzhen.aliyuncs.com/c0af9fe0d7eb4f35a8fe5b695e4d0b96/image/Screenshot_20220623-184322.png)
+
+2. Click Open Platforms in the bottom right-hand corner.![GTScreenshot\_20220321\_233150.png](https://terra-sz-hc1pro-cloudapi.oss-cn-shenzhen.aliyuncs.com/c0af9fe0d7eb4f35a8fe5b695e4d0b96/image/Screenshot_20220623-184704.png)
+
+3. Enter the front-end access address (default: http://ip:8080/pilot-login), and click on the **Connect** button in the top right-hand corner to access it.
+   
+   ​ ![GTScreenshot\_20220321\_233344.png](https://terra-sz-hc1pro-cloudapi.oss-cn-shenzhen.aliyuncs.com/c0af9fe0d7eb4f35a8fe5b695e4d0b96/image/Screenshot_20220623-184748.png)
+
+4. Click the **Login** button to log in.
+   
+   username: pilot
+   
+   password: pilot123
+   
+   ​ ![GTScreenshot\_20220321\_233736.png](https://stag-terra-1-g.djicdn.com/7774da665e07453698314cc27c523096/admin/doc/76990178-c000-478b-ba45-2a57db8756fb.png)
+
+5. If the main page shows Connected, you are successfully logged in, and the remote control is connected to the emqx server and is pushing data. Now that the demo is up and running, you can click the back button on the remote control to return to the main page, as long as you don't click the **exit** button in the upper right corner, you will still be logged in.
+   
+   ​ ![GTScreenshot\_20220321\_233859.png](https://terra-sz-hc1pro-cloudapi.oss-cn-shenzhen.aliyuncs.com/c0af9fe0d7eb4f35a8fe5b695e4d0b96/image/Screenshot_20220623-184935.png)
+
+6. You can already see the information on the workspace on the main page. As long as the font is dark black, it means that you are still logged in, and the data of the remote control and the drone will be continuously pushed. If you want to exit the workspace, you only need to click enter again, and then click the **Log Out** button in the upper right corner to exit, and the remote control and the drone will no longer push data.
+   
+   ​ ![GTScreenshot\_20220321\_234607.png](https://terra-sz-hc1pro-cloudapi.oss-cn-shenzhen.aliyuncs.com/c0af9fe0d7eb4f35a8fe5b695e4d0b96/image/Screenshot_20220623-184955.png)
+
+## [#](https://developer.dji.com/doc/cloud-api-tutorial/en/quick-start/source-code-deployment-steps.html#login-on-web-page)Login on Web Page
+
+Default login page: http://ip:8080/project , `ip` should be changed to the real IP address that users are actually using.
+
+username: adminPC
+
+password: adminPC
