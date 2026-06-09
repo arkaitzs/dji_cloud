@@ -369,3 +369,5 @@ video1.jpg
 video2.jpg
 
 video3.png
+*.pcapng
+*.csv
