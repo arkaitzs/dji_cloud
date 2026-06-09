@@ -765,8 +765,14 @@
                 }
 
                 // 4. Cargar módulo de elementos de mapa (requiere workspace + ws + api ya configurados)
-                printLog("Cargando módulo de Elementos de Mapa...", 'info');
-                const mapRes = window.djiBridge.platformLoadComponent("map", "{}");
+                // Spec (59 Pilot Cloud JSBridge.md §Map Module):
+                //   userName      — nombre del creador que aparece en cada elemento creado
+                //   elementPreName — prefijo del nombre auto-generado por Pilot 2
+                // Pasar {} vacío no es conforme a la especificación y puede impedir la sincronización.
+                const mapOperator = document.getElementById('mqtt-user')?.value || "Operador";
+                const mapParam = JSON.stringify({ userName: mapOperator, elementPreName: "" });
+                printLog(`Cargando módulo de Elementos de Mapa (userName=${mapOperator})...`, 'info');
+                const mapRes = window.djiBridge.platformLoadComponent("map", mapParam);
                 logBridgeResult("Componente 'map'", mapRes);
             } catch (err) {
                 printLog(`Error al registrar propiedades de la sesión: ${err.message}`, 'danger');
