@@ -15,7 +15,16 @@
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="/lib/leaflet.css" />
-    
+
+    <!-- JS libraries loaded in <head> so they are available before any body content renders.
+         This prevents a race condition where toolbar buttons are clickable before the inline
+         script at the bottom of <body> has executed (visible e.g. with VPN latency). -->
+    <script src="/lib/leaflet.js"></script>
+    <script src="/lib/signalr.min.js"></script>
+    <script src="/lib/leaflet-omnivore.min.js"></script>
+    <script src="/lib/hls.min.js"></script>
+    <script src="/lib/jszip.min.js"></script>
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2031,18 +2040,21 @@
     <!-- Contenedor del Mapa -->
     <div id="map"></div>
 
-    <!-- Leaflet JS -->
-    <script src="/lib/leaflet.js"></script>
-    <!-- SignalR JS -->
-    <script src="/lib/signalr.min.js"></script>
-    <!-- Leaflet Omnivore (KML parser) -->
-    <script src="/lib/leaflet-omnivore.min.js"></script>
-    <!-- HLS.js (streaming video) -->
-    <script src="/lib/hls.min.js"></script>
-    <!-- JSZip (generación de KMZ/ZIP en cliente) -->
-    <script src="/lib/jszip.min.js"></script>
-
     <script>
+        // ── Explicit window bindings for onclick handlers ──────────────────────
+        // Function declarations below are hoisted before this code runs, so they
+        // are already defined in scope here. Assigning them explicitly on window
+        // prevents any browser quirk (e.g. large-script lazy binding) from
+        // making them inaccessible from HTML onclick="..." attributes.
+        window.toggleSection          = toggleSection;
+        window.openVideoPanel         = openVideoPanel;
+        window.openDrcPanel           = openDrcPanel;
+        window.toggleMapDropdown      = toggleMapDropdown;
+        window.openFlightsPanel       = openFlightsPanel;
+        window.openRoutePlanner       = openRoutePlanner;
+        window.toggleMapElementsPanel = toggleMapElementsPanel;
+        // ──────────────────────────────────────────────────────────────────────
+
         // SN del gateway cuyo stream DJI está activo ahora mismo (para el botón PARAR)
         var _activeDjiGatewaySn = '';
 
@@ -6382,4 +6394,6 @@
             loadVideoList();
         }
 
-        // ─── Tab "Archivo KLV" ─────�
+    </script>
+</body>
+</html>
