@@ -1076,7 +1076,9 @@ mimeProvider.Mappings[".klv"]  = "application/octet-stream";
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
-    if (!path.StartsWith("/api/") || path.StartsWith("/api/admin"))
+    // Log DJI Cloud API requests (/api/ and /map/api/), but skip admin panel calls
+    bool isDjiApiPath = path.StartsWith("/api/") || path.StartsWith("/map/api/");
+    if (!isDjiApiPath || path.StartsWith("/api/admin"))
     {
         await next(context);
         return;

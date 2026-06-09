@@ -24,6 +24,11 @@ public class MapDataService : IMapDataService
 
     private const string DefaultGroupId = "e3dea0f5-37f2-4d79-ae58-490af3228001";
 
+    // DJI Pilot 2 always uses this zero-UUID as the group_id when posting new map elements.
+    // Without a matching group entry in the store, GET /element-groups will never return
+    // Pilot 2 elements even though they are stored correctly.
+    private const string PilotSharedGroupId = "00000000-0000-0000-0000-000000000000";
+
     public MapDataService(ILogger<MapDataService> logger)
     {
         _logger = logger;
@@ -32,18 +37,56 @@ public class MapDataService : IMapDataService
 
         lock (_lock)
         {
-            if (_store.Groups.Count == 0)
+            bool changed = false;
+
+            // ── CRÍTICO: grupo App Shared (zero-UUID) ──────────────────────────────
+            // DJI Pilot 2 siempre envía POST elements a group_id="00000000-...".
+            // Sin esta entrada en el store, GET /element-groups no devuelve esos
+            // elementos aunque estén guardados en disco. Este grupo DEBE existir.
+            if (!_store.Groups.Any(g => g.Id == PilotSharedGroupId))
+            {
+                _store.Groups.Insert(0, new ElementGroup
+                {
+                    Id = PilotSharedGroupId,
+                    Name = "APP",
+                    Type = 2,   // App Shared Element Group — requerido por DJI Pilot 2
+                    IsLock = false,
+                    CreateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                });
+                _logger.LogInformation(
+                    "[MapData] Grupo App Shared (id=00000000-..., type=2) creado. " +
+                    "DJI Pilot 2 sincronizará elementos de mapa en este grupo.");
+                changed = true;
+            }
+            else
+            {
+                // Migración: si el grupo ya existe pero tiene tipo incorrecto, corregirlo
+                var pilotGroup = _store.Groups.First(g => g.Id == PilotSharedGroupId);
+                if (pilotGroup.Type != 2)
+                {
+                    _logger.LogWarning(
+                        "[MapData] Corrigiendo type del grupo App Shared (00000000-...): {OldType} → 2",
+                        pilotGroup.Type);
+                    pilotGroup.Type = 2;
+                    changed = true;
+                }
+            }
+
+            // ── Grupo por defecto para el mapa web ─────────────────────────────────
+            if (!_store.Groups.Any(g => g.Id == DefaultGroupId))
             {
                 _store.Groups.Add(new ElementGroup
                 {
                     Id = DefaultGroupId,
-                    Name = "APP",
-                    Type = 1,
+                    Name = "Web",
+                    Type = 1,   // Default Element Group para elementos creados desde el navegador
                     IsLock = false,
                     CreateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 });
-                Save();
+                changed = true;
             }
+
+            if (changed) Save();
         }
     }
 
@@ -83,10 +126,13 @@ public class MapDataService : IMapDataService
     {
         lock (_lock)
         {
-            var g = _store.Groups.FirstOrDefault();
+            // Prefer the App Shared group (zero-UUID) so web-created elements
+            // are visible on the RC and other clients that only check that group.
+            var g = _store.Groups.FirstOrDefault(x => x.Id == PilotSharedGroupId)
+                 ?? _store.Groups.FirstOrDefault();
             if (g != null) return g;
 
-            g = new ElementGroup { Id = DefaultGroupId, Name = "APP" };
+            g = new ElementGroup { Id = PilotSharedGroupId, Name = "APP", Type = 2 };
             _store.Groups.Add(g);
             Save();
             return g;

@@ -45,7 +45,8 @@ public class MapController : ControllerBase
             })
         });
 
-        _logger.LogDebug("[MapController] GET element-groups workspace={WorkspaceId}", workspaceId);
+        _logger.LogInformation("[MapController] GET element-groups workspace={WorkspaceId} → {GroupCount} grupos, {ElementCount} elementos",
+            workspaceId, groups.Count, groups.Sum(g => _mapData.GetElementsByGroup(g.Id).Count));
         return Ok(new { code = 0, message = "success", data = result });
     }
 
@@ -61,7 +62,9 @@ public class MapController : ControllerBase
         };
 
         var created = _mapData.AddElement(groupId, element);
-        _logger.LogInformation("[MapController] Elemento creado id={Id} grupo={GroupId}", created.Id, groupId);
+        _logger.LogInformation("[MapController] Elemento CREADO id={Id} nombre='{Name}' grupo={GroupId} resource={Resource}",
+            created.Id, created.Name, groupId,
+            element.Resource?.ToString(Newtonsoft.Json.Formatting.None) ?? "null");
         _ = _notifier.NotifyCreateAsync(created);
 
         return Ok(new { code = 0, message = "success", data = new { id = created.Id } });
@@ -80,11 +83,11 @@ public class MapController : ControllerBase
         var result = _mapData.UpdateElement(elementId, patch);
         if (result == null)
         {
-            _logger.LogDebug("[MapController] PUT elemento no encontrado id={Id} — ignorando (idempotente)", elementId);
+            _logger.LogInformation("[MapController] PUT elemento id={Id} no encontrado — respuesta idempotente OK", elementId);
             return Ok(new { code = 0, message = "success", data = new { } });
         }
 
-        _logger.LogInformation("[MapController] Elemento actualizado id={Id}", elementId);
+        _logger.LogInformation("[MapController] Elemento ACTUALIZADO id={Id} nombre='{Name}'", elementId, result.Name);
         _ = _notifier.NotifyUpdateAsync(result);
 
         return Ok(new { code = 0, message = "success", data = new { } });
@@ -98,7 +101,7 @@ public class MapController : ControllerBase
         var groupId = element?.GroupId ?? "";
 
         _mapData.DeleteElement(elementId);
-        _logger.LogInformation("[MapController] Elemento eliminado id={Id}", elementId);
+        _logger.LogInformation("[MapController] Elemento ELIMINADO id={Id} grupo={GroupId}", elementId, groupId);
         _ = _notifier.NotifyDeleteAsync(elementId, groupId);
 
         return Ok(new { code = 0, message = "success", data = new { } });
