@@ -763,6 +763,11 @@
                 } else {
                     printLog("⚠️ Algunos parámetros de sesión no pudieron registrarse. Revisa los errores anteriores.", 'warn');
                 }
+
+                // 4. Cargar módulo de elementos de mapa (requiere workspace + ws + api ya configurados)
+                printLog("Cargando módulo de Elementos de Mapa...", 'info');
+                const mapRes = window.djiBridge.platformLoadComponent("map", "{}");
+                logBridgeResult("Componente 'map'", mapRes);
             } catch (err) {
                 printLog(`Error al registrar propiedades de la sesión: ${err.message}`, 'danger');
             }

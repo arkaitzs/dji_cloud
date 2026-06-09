@@ -1,6 +1,7 @@
 using DjiCloudServer;
 using DjiCloudServer.Services;
 using DjiCloudServer.Hubs;
+using DjiCloudServer.Models;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using MQTTnet;
@@ -82,6 +83,9 @@ builder.Services.AddCors(options =>
 });
 
 // ─── Servicios DJI Cloud API ──────────────────────────────────────────────────
+builder.Services.AddSingleton<IMapDataService, MapDataService>();
+builder.Services.AddSingleton<IDjiWebSocketManager, DjiWebSocketManager>();
+builder.Services.AddSingleton<IMapSyncNotifier, MapSyncNotifier>();
 builder.Services.AddSingleton<IAdminDataService, AdminDataService>();
 builder.Services.AddSingleton<ITrajectoryStore, TrajectoryStore>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
@@ -1107,11 +1111,14 @@ app.Use(async (context, next) =>
         {
             using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
             app.Logger.LogInformation("[WebSocket] Mando conectado.");
-            
+
             var adminData = context.RequestServices.GetRequiredService<IAdminDataService>();
             adminData.AddLog("INFO", "WebSocket", "Mando conectado al canal WebSocket (/ws)");
-            
-            var buffer = new byte[1024 * 4];
+
+            var wsManager = context.RequestServices.GetRequiredService<IDjiWebSocketManager>();
+            wsManager.Add(webSocket);
+
+            var buffer = new byte[4096];
             try
             {
                 while (webSocket.State == System.Net.WebSockets.WebSocketState.Open)
@@ -1122,14 +1129,21 @@ app.Use(async (context, next) =>
                         await webSocket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Cierre solicitado", CancellationToken.None);
                         break;
                     }
+                    // Mensajes entrantes del mando (heartbeat, etc.) — loguear para diagnóstico
+                    if (result.Count > 0)
+                    {
+                        var msg = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        app.Logger.LogDebug("[WebSocket] Mensaje entrante del mando: {Msg}", msg);
+                    }
                 }
             }
             catch (System.Net.WebSockets.WebSocketException)
             {
-                // Desconexión abrupta del cliente (cierre de pestaña, pérdida de red), no es un error real
+                // Desconexión abrupta — no es un error real
             }
             finally
             {
+                wsManager.Remove(webSocket);
                 app.Logger.LogInformation("[WebSocket] Mando desconectado.");
                 adminData.AddLog("WARN", "WebSocket", "Mando desconectado del canal WebSocket");
             }
@@ -1243,3 +1257,57 @@ _ = Task.Run(async () =>
 
                 // Heartbeat DRC — obligatorio cada ≤3 s para que DJI mantenga el canal abierto.
                 // El campo 'seq' debe incrementarse en cada envío (spec DJI Cloud API).
+                var seq = _drcHeartbeatSeq.AddOrUpdate(gw.GatewaySn, 1, (_, v) => v + 1);
+                var hbPayload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    method = "heart_beat",
+                    data = new { seq, timestamp = ts }
+                });
+                try
+                {
+                    await mqttSvc.PublishAsync($"thing/product/{gw.GatewaySn}/drc/down",
+                        hbPayload, MqttQualityOfServiceLevel.AtMostOnce);
+                }
+                catch { /* ignorar si el canal DRC no está activo */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogDebug(ex, "[Probe] Error en bucle de probes/heartbeat DRC");
+        }
+
+        try { await Task.Delay(3000, _probeAppCt); }
+        catch (OperationCanceledException) { return; }
+    }
+});
+
+app.Run();
+
+// ─── Funciones locales ────────────────────────────────────────────────────────
+
+static void OpenRtmpFirewallRule(ILogger logger)
+{
+    try
+    {
+        var rule = "DjiCloudServer-RTMP";
+        var args = $"advfirewall firewall show rule name=\"{rule}\"";
+        var check = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("netsh", args)
+        {
+            RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+        });
+        check?.WaitForExit(3000);
+        if (check?.ExitCode == 0) return; // regla ya existe
+
+        var addArgs = $"advfirewall firewall add rule name=\"{rule}\" dir=in action=allow protocol=TCP localport=1935-1965 profile=any";
+        var add = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("netsh", addArgs)
+        {
+            RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+        });
+        add?.WaitForExit(5000);
+        logger.LogInformation("[Firewall] Regla RTMP creada (puertos 1935-1965 TCP)");
+    }
+    catch (Exception ex)
+    {
+        logger.LogDebug(ex, "[Firewall] No se pudo abrir la regla RTMP (sin permisos de administrador)");
+    }
+}

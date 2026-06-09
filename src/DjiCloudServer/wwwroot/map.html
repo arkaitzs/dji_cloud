@@ -1498,6 +1498,11 @@
             DRC
             <span id="drc-toolbar-dot" style="display:none;position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:#a855f7;box-shadow:0 0 5px #a855f7;"></span>
         </button>
+        <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
+        <button class="layer-btn" id="map-elements-toolbar-btn" onclick="toggleMapElementsPanel()" style="color:#06b6d4;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            Elementos
+        </button>
     </div>
 
     <!-- ── DRC Live Badge (flotante, muestra Hz cuando el canal está activo) ── -->
@@ -1512,6 +1517,29 @@
 
     <!-- ── Toast container (mensajes temporales centrados arriba del mapa) ──── -->
     <div id="drc-toast-container"></div>
+
+    <!-- ── Panel de Elementos de Mapa ────────────────────────────────────── -->
+    <div id="map-elements-panel" style="display:none; position:absolute; top:70px; right:24px; z-index:1000; width:300px; background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:0 12px 40px rgba(0,0,0,0.5); overflow:hidden;">
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--panel-border);">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                <span style="font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--accent-cyan);">Elementos de Mapa</span>
+            </div>
+            <button onclick="toggleMapElementsPanel()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:3px; line-height:0;" onmouseover="this.style.color='var(--accent-danger)'" onmouseout="this.style.color='var(--text-muted)'">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <div style="padding:12px 16px; border-bottom:1px solid var(--panel-border);">
+            <button id="map-add-point-btn" onclick="toggleMapDrawMode()" style="width:100%; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:var(--accent-cyan); border-radius:10px; padding:8px 12px; cursor:pointer; font-family:'Rajdhani',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:8px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                <span id="map-add-point-label">Añadir Punto</span>
+            </button>
+        </div>
+        <div id="map-elements-list" style="max-height:340px; overflow-y:auto; padding:8px;">
+            <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:13px;">Cargando...</div>
+        </div>
+        <div id="map-elements-count" style="padding:8px 16px; border-top:1px solid var(--panel-border); font-size:11px; color:var(--text-muted); text-align:right;"></div>
+    </div>
 
     <!-- ── Panel DRC (alta frecuencia 10-30 Hz) ──────────────────────────── -->
     <div id="drc-panel">
@@ -2192,6 +2220,12 @@
         var map = L.map('map', {
             zoomControl: false // Lo deshabilitamos para moverlo de posición
         }).setView(baseCoords, 14);
+
+        // ─── Capa de Elementos de Mapa Táctica ───────────────────────────────
+        const mapElementsLayer = L.layerGroup().addTo(map);
+        const _mapElementMarkers = {};      // id → capa Leaflet
+        const MAP_WORKSPACE_ID = 'e3dea0f5-37f2-4d79-ae58-490af3228069';
+        let   _mapDrawMode = false;         // modo añadir punto activo
 
         // Añadir control de zoom en la parte inferior derecha
         L.control.zoom({
@@ -3329,6 +3363,43 @@
             addLog("Conexión con SignalR cerrada.", 'system');
         });
 
+        // ── Handlers de Elementos de Mapa (SignalR) ───────────────────────────────
+        connection.on('MapElementCreate', function(id, groupId, name, resourceJson) {
+            try {
+                const resource = resourceJson ? JSON.parse(resourceJson) : null;
+                const el = { id, group_id: groupId, name, resource };
+                _allMapElements = _allMapElements.filter(e => e.id !== id);
+                _allMapElements.push(el);
+                _drawMapElement(el);
+                addLog('Elemento de mapa creado: ' + (name || id), 'system');
+                if (document.getElementById('map-elements-panel')?.style.display !== 'none') _renderMapElementsList();
+            } catch(e) { console.warn('MapElementCreate error:', e); }
+        });
+
+        connection.on('MapElementUpdate', function(id, groupId, name, resourceJson) {
+            try {
+                const existing = _mapElementMarkers[id];
+                if (existing) { mapElementsLayer.removeLayer(existing); delete _mapElementMarkers[id]; }
+                const resource = resourceJson ? JSON.parse(resourceJson) : null;
+                const el = { id, group_id: groupId, name, resource };
+                _allMapElements = _allMapElements.filter(e => e.id !== id);
+                _allMapElements.push(el);
+                _drawMapElement(el);
+                if (document.getElementById('map-elements-panel')?.style.display !== 'none') _renderMapElementsList();
+            } catch(e) { console.warn('MapElementUpdate error:', e); }
+        });
+
+        connection.on('MapElementDelete', function(id, groupId) {
+            const layer = _mapElementMarkers[id];
+            if (layer) { mapElementsLayer.removeLayer(layer); delete _mapElementMarkers[id]; }
+            _allMapElements = _allMapElements.filter(e => e.id !== id);
+            if (document.getElementById('map-elements-panel')?.style.display !== 'none') _renderMapElementsList();
+        });
+
+        connection.on('MapGroupRefresh', function(groupIds) {
+            fetchMapElements();
+        });
+
         // Iniciar Conexión
         connection.start()
             .then(() => {
@@ -3341,6 +3412,7 @@
                 setInterval(pollGateways, 5000); // Actualizar cada 5s
                 setInterval(syncActiveDevices, 5000); // Sincronizar drones cada 5s
                 wrapDrcTracking();   // Activar rastreo de frecuencia DRC
+                fetchMapElements();  // Carga inicial de elementos de mapa táctica
             })
             .catch(err => {
                 console.error("SignalR Connection Error: ", err);
@@ -3446,6 +3518,174 @@
                 if (lat && lon && lat !== 0 && lon !== 0) trackDrcPacket(sn, lat, lon);
             });
         }
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // ─── ELEMENTOS DE MAPA TÁCTICA ─────────────────────────────────────────
+        // ═══════════════════════════════════════════════════════════════════════
+
+        let _allMapElements = []; // caché local
+
+        function toggleMapElementsPanel() {
+            const panel = document.getElementById('map-elements-panel');
+            const isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'block';
+            const btn = document.getElementById('map-elements-toolbar-btn');
+            if (btn) btn.style.background = isOpen ? '' : 'rgba(6,182,212,0.15)';
+            if (!isOpen) fetchMapElements();
+        }
+
+        async function fetchMapElements() {
+            try {
+                const res = await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/elements`);
+                const data = await res.json();
+                if (!data.success) return;
+
+                // Limpiar capa y redibujar desde cero
+                mapElementsLayer.clearLayers();
+                Object.keys(_mapElementMarkers).forEach(k => delete _mapElementMarkers[k]);
+                _allMapElements = data.data || [];
+                _allMapElements.forEach(el => _drawMapElement(el));
+                _renderMapElementsList();
+            } catch(err) {
+                console.warn('[MapElements] Error cargando:', err);
+            }
+        }
+
+        function _drawMapElement(element) {
+            try {
+                const content = element.resource?.content;
+                if (!content?.geometry) return;
+
+                const color = content.properties?.color || '#06b6d4';
+                const geom  = content.geometry;
+                let   layer;
+
+                if (geom.type === 'Point') {
+                    const [lon, lat] = geom.coordinates;
+                    layer = L.circleMarker([lat, lon], {
+                        color, fillColor: color, fillOpacity: 0.75, radius: 8, weight: 2
+                    });
+                } else if (geom.type === 'LineString') {
+                    const lls = geom.coordinates.map(([lon, lat]) => [lat, lon]);
+                    layer = L.polyline(lls, { color, weight: 3 });
+                } else if (geom.type === 'Polygon') {
+                    const lls = (geom.coordinates[0] || []).map(([lon, lat]) => [lat, lon]);
+                    layer = L.polygon(lls, { color, fillOpacity: 0.2, weight: 2 });
+                }
+
+                if (!layer) return;
+
+                const label = element.name || 'Elemento';
+                layer.bindPopup(
+                    `<div style="font-family:'Outfit',sans-serif;min-width:150px;">` +
+                    `<div style="font-weight:700;font-size:13px;margin-bottom:6px;">${label}</div>` +
+                    `<div style="font-size:11px;color:#64748b;margin-bottom:10px;">${geom.type}</div>` +
+                    `<button onclick="deleteMapElement('${element.id}')" ` +
+                    `style="background:#ef4444;color:#fff;border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;width:100%;">` +
+                    `Eliminar</button></div>`
+                );
+                layer.addTo(mapElementsLayer);
+                _mapElementMarkers[element.id] = layer;
+            } catch(err) {
+                console.warn('[MapElements] Error dibujando:', err);
+            }
+        }
+
+        function _renderMapElementsList() {
+            const list = document.getElementById('map-elements-list');
+            const countEl = document.getElementById('map-elements-count');
+            if (!list) return;
+
+            const elements = Object.keys(_mapElementMarkers).map(id => {
+                const cached = _allMapElements.find(e => e.id === id);
+                return cached || { id, name: id, resource: null };
+            });
+
+            if (countEl) countEl.textContent = elements.length + ' elemento' + (elements.length !== 1 ? 's' : '');
+
+            if (elements.length === 0) {
+                list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px;">Sin elementos. Usa "Añadir Punto" para crear uno.</div>';
+                return;
+            }
+
+            list.innerHTML = elements.map(el => {
+                const geomType = el.resource?.content?.geometry?.type || '?';
+                const icon = geomType === 'Point' ? '⬤' : geomType === 'LineString' ? '╱' : '▭';
+                return `<div onclick="focusMapElement('${el.id}')" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;cursor:pointer;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.05)';this.style.borderColor='var(--panel-border)'" onmouseout="this.style.background='';this.style.borderColor='transparent'">
+                    <div style="display:flex;align-items:center;gap:8px;overflow:hidden;">
+                        <span style="font-size:10px;color:var(--accent-cyan);flex-shrink:0;">${icon}</span>
+                        <div style="overflow:hidden;">
+                            <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${el.name || 'Elemento'}</div>
+                            <div style="font-size:10px;color:var(--text-muted);">${geomType}</div>
+                        </div>
+                    </div>
+                    <button onclick="event.stopPropagation();deleteMapElement('${el.id}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:3px;line-height:0;flex-shrink:0;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-muted)'">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+                    </button>
+                </div>`;
+            }).join('');
+        }
+
+        function focusMapElement(id) {
+            const layer = _mapElementMarkers[id];
+            if (!layer) return;
+            if (layer.getLatLng) { map.setView(layer.getLatLng(), 17); }
+            else if (layer.getBounds) { map.fitBounds(layer.getBounds(), { padding: [40, 40] }); }
+            setTimeout(() => layer.openPopup(), 300);
+        }
+
+        async function deleteMapElement(id) {
+            if (!confirm('¿Eliminar este elemento del mapa?')) return;
+            try {
+                await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/elements/${id}`, { method: 'DELETE' });
+                // La respuesta llegará por SignalR (MapElementDelete) para actualizar el mapa
+            } catch(err) {
+                addLog('Error eliminando elemento: ' + err.message, 'system');
+            }
+        }
+
+        function toggleMapDrawMode() {
+            _mapDrawMode = !_mapDrawMode;
+            const btn   = document.getElementById('map-add-point-btn');
+            const label = document.getElementById('map-add-point-label');
+            map.getContainer().style.cursor = _mapDrawMode ? 'crosshair' : '';
+            if (btn) {
+                btn.style.background = _mapDrawMode ? 'rgba(6,182,212,0.3)' : 'rgba(6,182,212,0.1)';
+                btn.style.borderColor = _mapDrawMode ? 'rgba(6,182,212,0.8)' : 'rgba(6,182,212,0.3)';
+            }
+            if (label) label.textContent = _mapDrawMode ? 'Click en el mapa para colocar' : 'Añadir Punto';
+            if (_mapDrawMode) addLog('Modo dibujo activo — haz click en el mapa para añadir un punto.', 'system');
+        }
+
+        // Click en el mapa para añadir punto táctica
+        map.on('click', async function(e) {
+            if (!_mapDrawMode) return;
+            toggleMapDrawMode(); // desactivar modo antes de prompt
+
+            const name = prompt('Nombre del punto (ej: POI, Zona de aterrizaje...):', 'Punto') || 'Punto';
+            const resource = {
+                type: 0,
+                content: {
+                    type: 'Feature',
+                    properties: { color: '#06b6d4', clampToGround: false },
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [e.latlng.lng, e.latlng.lat, 0]
+                    }
+                }
+            };
+
+            try {
+                await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/elements`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, resource })
+                });
+                // El elemento llegará de vuelta por SignalR (MapElementCreate)
+            } catch(err) {
+                addLog('Error creando elemento: ' + err.message, 'system');
+            }
+        });
 
         function openDrcPanel() {
             drcPanelOpen = true;
@@ -6142,4 +6382,4 @@
             loadVideoList();
         }
 
-        // ─── Tab "Archivo KLV" ─────�
+        // ─── Tab "Archivo KLV" ─────�
