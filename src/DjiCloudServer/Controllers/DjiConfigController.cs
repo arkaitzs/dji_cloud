@@ -29,8 +29,8 @@ public class ConfigController : ControllerBase
             mqttHost = Request.Host.Host;
         }
 
-        // Generamos un token de sesión simulado
-        var sessionToken = $"session_{Guid.NewGuid():N}";
+        // Token estable por vida del servidor (compartido con /manage/api/v1/login)
+        var sessionToken = SessionAuth.Token;
 
         return Ok(new
         {

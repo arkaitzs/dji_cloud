@@ -1463,12 +1463,36 @@
         </div>
     </div>
 
-    <!-- HUD Derecho (Servidor) -->
-    <div class="hud-right">
-        <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Servidor SignalR:</span>
+    <!-- HUD Derecho (Servidor + WS Mando + Controles Admin) -->
+    <div class="hud-right" style="flex-wrap:wrap; gap:6px 10px;">
+        <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Servidor:</span>
         <div id="server-status-badge" class="status-badge connecting">
             <span class="status-dot"></span>
             <span id="server-status-text">Conectando...</span>
+        </div>
+        <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-left: 8px;">Mando RC:</span>
+        <div id="rc-ws-badge" class="status-badge disconnected" title="Estado del canal WebSocket del Mando RC. Los elementos de mapa SOLO se sincronizan cuando está Conectado.">
+            <span class="status-dot"></span>
+            <span id="rc-ws-text">Desconectado</span>
+        </div>
+        <!-- Botones admin de sincronización mando↔servidor -->
+        <div style="display:flex; align-items:center; gap:5px; margin-left:10px; border-left:1px solid rgba(255,255,255,0.15); padding-left:10px;">
+            <button id="btn-rc-sync" onclick="rcAdminAction('refresh')"
+                title="Envía map_group_refresh al mando RC para que descargue todos los elementos del servidor"
+                style="font-size:11px;padding:3px 8px;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);color:#06b6d4;border-radius:4px;cursor:pointer;white-space:nowrap;">
+                📡 Sync RC
+            </button>
+            <button id="btn-rc-block" onclick="rcAdminAction('block')"
+                title="Paso 1: Bloquea el WS y desconecta el mando. LUEGO crea el elemento en Pilot 2 MIENTRAS aparece este badge en rojo. Luego pulsa Desbloquear."
+                style="font-size:11px;padding:3px 8px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;border-radius:4px;cursor:pointer;white-space:nowrap;">
+                🔒 Bloquear WS
+            </button>
+            <button id="btn-rc-unblock" onclick="rcAdminAction('unblock')"
+                title="Paso 2: Desbloquea el WS. El mando RC reconectará y subirá los elementos creados mientras estaba offline."
+                style="font-size:11px;padding:3px 8px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#22c55e;border-radius:4px;cursor:pointer;white-space:nowrap; display:none;">
+                🔓 Desbloquear
+            </button>
+            <span id="rc-block-hint" style="font-size:10px;color:#f59e0b;display:none;">⚠️ WS bloqueado — crea el elemento en Pilot 2 ahora</span>
         </div>
     </div>
 
@@ -3412,6 +3436,92 @@
             fetchMapElements();
         });
 
+        // ── Estado del WebSocket del Mando RC ─────────────────────────────────────
+        // CRÍTICO: los elementos de mapa del RC solo se sincronizan mientras este canal está activo.
+        // Si aparece "Desconectado", cualquier elemento creado en el mando quedará solo en local
+        // y se perderá si el mando se reinicia antes de reconectar.
+        const rcWsBadge = document.getElementById('rc-ws-badge');
+        const rcWsText  = document.getElementById('rc-ws-text');
+
+        connection.on('RcWsConnected', function() {
+            if (rcWsBadge) rcWsBadge.className = 'status-badge connected';
+            if (rcWsText)  rcWsText.textContent = 'Conectado';
+            addLog('✅ Mando RC: WebSocket conectado — elementos se sincronizan en tiempo real.', 'system');
+        });
+
+        connection.on('RcWsDisconnected', function() {
+            if (rcWsBadge) rcWsBadge.className = 'status-badge disconnected';
+            if (rcWsText)  rcWsText.textContent = 'Desconectado';
+            addLog('⚠️ Mando RC: WebSocket DESCONECTADO — NO crees elementos hasta reconectar.', 'system');
+        });
+
+        // ── Acciones admin del mando RC ────────────────────────────────────────
+        // Gestiona sincronización manual y el flujo de bloqueo WS para crear
+        // elementos offline (workaround para Pilot 2 v17.1.5.15 que no sube
+        // elementos creados mientras el WS está conectado).
+        window.rcAdminAction = async function(action) {
+            const btnBlock   = document.getElementById('btn-rc-block');
+            const btnUnblock = document.getElementById('btn-rc-unblock');
+            const btnSync    = document.getElementById('btn-rc-sync');
+            const hint       = document.getElementById('rc-block-hint');
+
+            if (action === 'refresh') {
+                btnSync.disabled = true; btnSync.textContent = '⏳ Enviando…';
+                try {
+                    const r = await fetch('/api/web-map/admin/refresh', { method: 'POST' });
+                    const d = await r.json();
+                    addLog('📡 map_group_refresh enviado — el mando RC descargará los elementos del servidor.', 'system');
+                } catch(e) { addLog('❌ Error al enviar map_group_refresh: ' + e.message, 'system'); }
+                btnSync.disabled = false; btnSync.textContent = '📡 Sync RC';
+                return;
+            }
+
+            if (action === 'block') {
+                const ok = confirm(
+                    '🔒 FLUJO CREAR ELEMENTO OFFLINE\n\n' +
+                    'Paso 1/2: Se bloqueará el WS y se desconectará el mando.\n\n' +
+                    '➡ CREA el elemento en Pilot 2 MIENTRAS el badge diga "Bloqueado".\n\n' +
+                    'Luego pulsa "🔓 Desbloquear" y el mando subirá el elemento en batch.\n\n' +
+                    '¿Continuar?'
+                );
+                if (!ok) return;
+                btnBlock.disabled = true; btnBlock.textContent = '⏳ Bloqueando…';
+                try {
+                    const r = await fetch('/api/web-map/admin/block-ws', { method: 'POST' });
+                    const d = await r.json();
+                    addLog('🔒 WS BLOQUEADO — crea el elemento en Pilot 2 AHORA. El badge del Mando RC dirá Desconectado.', 'system');
+                    addLog('Cuando hayas terminado, pulsa "🔓 Desbloquear" para que el mando reconecte y suba el elemento.', 'system');
+                    // Actualizar UI: mostrar estado bloqueado
+                    if (rcWsBadge) rcWsBadge.className = 'status-badge disconnected';
+                    if (rcWsText)  rcWsText.textContent = 'BLOQUEADO';
+                    btnBlock.style.display = 'none';
+                    btnUnblock.style.display = 'inline-block';
+                    hint.style.display = 'inline';
+                } catch(e) {
+                    addLog('❌ Error bloqueando WS: ' + e.message, 'system');
+                    btnBlock.disabled = false; btnBlock.textContent = '🔒 Bloquear WS';
+                }
+                return;
+            }
+
+            if (action === 'unblock') {
+                btnUnblock.disabled = true; btnUnblock.textContent = '⏳ Desbloqueando…';
+                try {
+                    const r = await fetch('/api/web-map/admin/unblock-ws', { method: 'POST' });
+                    const d = await r.json();
+                    addLog('🔓 WS desbloqueado — el mando RC reconectará en ~5s y subirá los elementos pendientes.', 'system');
+                    hint.style.display = 'none';
+                    btnUnblock.style.display = 'none';
+                    btnBlock.style.display = 'inline-block';
+                    btnBlock.disabled = false; btnBlock.textContent = '🔒 Bloquear WS';
+                } catch(e) {
+                    addLog('❌ Error desbloqueando WS: ' + e.message, 'system');
+                    btnUnblock.disabled = false; btnUnblock.textContent = '🔓 Desbloquear';
+                }
+                return;
+            }
+        };
+
         // Iniciar Conexión
         connection.start()
             .then(() => {
@@ -3679,10 +3789,13 @@
                 type: 0,
                 content: {
                     type: 'Feature',
-                    properties: { color: '#06b6d4', clampToGround: false },
+                    // Formato nativo de DJI Pilot 2 para puntos: 3D [lon, lat, 0.0] + clampToGround true
+                    // Color: SOLO paleta DJI (2D8CF0/19BE6B/FFBB00/B620E0/E23C39/212121) — otros se descartan en el RC
+                    properties: { color: '#2D8CF0', clampToGround: true },
                     geometry: {
                         type: 'Point',
-                        coordinates: [e.latlng.lng, e.latlng.lat, 0]
+                        coordinates: [e.latlng.lng, e.latlng.lat, 0.0],
+                        radius: 0.0
                     }
                 }
             };

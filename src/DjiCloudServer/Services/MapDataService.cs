@@ -1,5 +1,6 @@
 using DjiCloudServer.Models;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace DjiCloudServer.Services;
 
@@ -72,19 +73,141 @@ public class MapDataService : IMapDataService
                 }
             }
 
-            // ── Grupo por defecto para el mapa web ─────────────────────────────────
-            if (!_store.Groups.Any(g => g.Id == DefaultGroupId))
+            // ── Grupo por defecto para el mapa web (Default Layer, type 1) ────────
+            // Igual que el seed de la demo Java: 'Default Layer' type=1 es la capa
+            // distribuida donde van los elementos creados desde el lado web.
+            var defaultGroup = _store.Groups.FirstOrDefault(g => g.Id == DefaultGroupId);
+            if (defaultGroup == null)
             {
                 _store.Groups.Add(new ElementGroup
                 {
                     Id = DefaultGroupId,
-                    Name = "Web",
-                    Type = 1,   // Default Element Group para elementos creados desde el navegador
+                    Name = "Default Layer",
+                    Type = 1,
                     IsLock = false,
                     CreateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 });
                 changed = true;
             }
+            else if (defaultGroup.Name != "Default Layer")
+            {
+                defaultGroup.Name = "Default Layer";
+                changed = true;
+            }
+
+            // ── Migración: elementos web fuera de la capa Pilot Share ──────────────
+            // Los elementos creados desde map.html acababan en el grupo type=2
+            // (Pilot Share Layer, zero-UUID) — el RC no renderiza lo descargado de su
+            // propia capa de subida. La demo Java los pone en 'Default Layer' (type 1).
+            foreach (var el in _store.Elements.Where(e =>
+                         e.GroupId == PilotSharedGroupId &&
+                         e.Resource?["user_name"]?.ToString() == "Web"))
+            {
+                el.GroupId    = DefaultGroupId;
+                el.UpdateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                _logger.LogInformation(
+                    "[MapData] Migración: elemento web '{Name}' movido a Default Layer (type 1)", el.Name);
+                changed = true;
+            }
+
+            // ── Deduplicar elementos con el mismo UUID ─────────────────────────────
+            // Ocurre cuando el RC re-sube sus elementos en cada reconexión antes del fix de upsert.
+            // Conservamos la copia con mayor update_time (la más reciente).
+            var before = _store.Elements.Count;
+            _store.Elements = _store.Elements
+                .GroupBy(e => e.Id)
+                .Select(g => g.OrderByDescending(e => e.UpdateTime).First())
+                .ToList();
+            var removed = before - _store.Elements.Count;
+            if (removed > 0)
+            {
+                _logger.LogInformation("[MapData] Deduplicación: eliminados {Count} elementos duplicados ({Before} → {After})",
+                    removed, before, _store.Elements.Count);
+                changed = true;
+            }
+
+            // ── Normalizar elementos sin radius en la geometría ────────────────────
+            // DJI Pilot 2 incluye "radius" en TODOS sus elementos (0.0 para Point/Line/Polygon,
+            // valor real para Circle). Sin este campo, el RC omite el elemento al renderizar
+            // la capa de cloud elements. Los elementos creados desde map.html antes de este fix
+            // carecen del campo — este paso los repara en disco al arrancar el servidor.
+            int normalizedCount = 0;
+            foreach (var el in _store.Elements)
+            {
+                // ── user_name dentro del resource (alineado con la demo Java) ──────
+                // La demo persiste resource.user_name al crear y lo devuelve en
+                // GET element-groups (lo que descarga el RC). Los elementos creados
+                // antes de este fix carecen del campo — derivarlo del prefijo del nombre.
+                if (el.Resource is JObject res && string.IsNullOrEmpty(res["user_name"]?.ToString()))
+                {
+                    var derivedUser = "pilot";
+                    if (!string.IsNullOrEmpty(el.Name))
+                    {
+                        var lastSpace = el.Name.LastIndexOf(' ');
+                        derivedUser = lastSpace > 0 && int.TryParse(el.Name[(lastSpace + 1)..], out _)
+                            ? el.Name[..lastSpace] : el.Name;
+                    }
+                    res["user_name"] = derivedUser;
+                    el.UpdateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    normalizedCount++;
+                    changed = true;
+                }
+
+                if (el.Resource?.SelectToken("content.geometry") is not JObject geom) continue;
+
+                // Añadir radius si falta
+                if (!geom.ContainsKey("radius"))
+                {
+                    geom["radius"] = 0.0;
+                    el.UpdateTime  = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    normalizedCount++;
+                    changed = true;
+                }
+
+                // FORMATO NATIVO DEL RC (verificado con POST reales de DJI Pilot 2 v17.1.5.15):
+                //   Point:  coordinates [lon, lat, 0.0] (3D) + clampToGround: true
+                //   Circle: coordinates [lon, lat] (2D)      + clampToGround: false
+                // Normalizar los Points almacenados al formato 3D nativo del mando.
+                if (geom["type"]?.ToString() == "Point"
+                    && geom["coordinates"] is JArray coords2d && coords2d.Count == 2)
+                {
+                    geom["coordinates"] = new JArray(coords2d[0], coords2d[1], 0.0);
+                    el.UpdateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    normalizedCount++;
+                    changed = true;
+                }
+
+                // clampToGround: true para Points (formato nativo del RC)
+                if (geom["type"]?.ToString() == "Point"
+                    && el.Resource?.SelectToken("content.properties") is JObject props
+                    && props["clampToGround"]?.Value<bool>() != true)
+                {
+                    props["clampToGround"] = true;
+                    el.UpdateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    changed = true;
+                }
+
+                // PALETA DJI (spec doc 40): el RC solo renderiza 6 colores concretos
+                // y descarta en silencio cualquier otro (p.ej. el cian #06b6d4 que
+                // usaba map.html). Mapear al color de paleta más cercano.
+                if (el.Resource?.SelectToken("content.properties") is JObject colorProps
+                    && colorProps["color"] is JToken colorTok)
+                {
+                    var original   = colorTok.ToString();
+                    var normalized = Controllers.WebMapController.NormalizeToDjiPalette(original);
+                    if (!string.Equals(original, normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        colorProps["color"] = normalized;
+                        el.UpdateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        normalizedCount++;
+                        changed = true;
+                    }
+                }
+            }
+            if (normalizedCount > 0)
+                _logger.LogInformation(
+                    "[MapData] Normalización: corregidos {Count} elemento(s) web-created (radius + coords 2D). " +
+                    "Ahora son visibles en el mando RC.", normalizedCount);
 
             if (changed) Save();
         }
@@ -126,13 +249,16 @@ public class MapDataService : IMapDataService
     {
         lock (_lock)
         {
-            // Prefer the App Shared group (zero-UUID) so web-created elements
-            // are visible on the RC and other clients that only check that group.
-            var g = _store.Groups.FirstOrDefault(x => x.Id == PilotSharedGroupId)
-                 ?? _store.Groups.FirstOrDefault();
+            // Los elementos web van al grupo type=1 (Default Layer), igual que la demo Java:
+            // el seed oficial pone los elementos del lado web en 'Default Layer' (type 1,
+            // is_distributed) y reserva el grupo type=2 (Pilot Share Layer) como capa de
+            // SUBIDA de los pilotos. El RC renderiza las capas distribuidas type 0/1,
+            // pero no lo que descarga de su propia capa compartida type 2.
+            var g = _store.Groups.FirstOrDefault(x => x.Id == DefaultGroupId)
+                 ?? _store.Groups.FirstOrDefault(x => x.Type == 1);
             if (g != null) return g;
 
-            g = new ElementGroup { Id = PilotSharedGroupId, Name = "APP", Type = 2 };
+            g = new ElementGroup { Id = DefaultGroupId, Name = "Default Layer", Type = 1 };
             _store.Groups.Add(g);
             Save();
             return g;
@@ -160,6 +286,21 @@ public class MapDataService : IMapDataService
         {
             element.GroupId = groupId;
             if (string.IsNullOrEmpty(element.Id)) element.Id = Guid.NewGuid().ToString();
+
+            // ── UPSERT: si ya existe un elemento con el mismo UUID, actualizar en lugar de insertar.
+            // DJI Pilot 2 re-sube todos sus elementos locales en cada reconexión (con los mismos UUIDs).
+            // Sin este check, el store acumula duplicados que corrompen el mapa.
+            var existing = _store.Elements.FirstOrDefault(e => e.Id == element.Id);
+            if (existing != null)
+            {
+                existing.GroupId     = groupId;
+                if (!string.IsNullOrEmpty(element.Name)) existing.Name = element.Name;
+                if (element.Resource != null) existing.Resource = element.Resource;
+                existing.UpdateTime  = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                Save();
+                return existing;
+            }
+
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             element.CreateTime = now;
             element.UpdateTime = now;

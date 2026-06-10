@@ -734,7 +734,33 @@
             }
 
             if (!isLicenseVerified && window.djiBridge) {
-                printLog("✗ No se pueden establecer propiedades de sesión porque la verificación de licencia falló. Por favor, asegúrate de que el mando esté conectado a Internet.", 'danger');
+                // #9: el fallback ya NO enmascara el fallo — se anuncia de forma destacada,
+                // se intenta cargar (la licencia puede estar cacheada en el RC de una
+                // verificación anterior con internet) y se RE-VERIFICA el estado final.
+                printLog("❌ LICENCIA NO VERIFICADA — los módulos cloud pueden no funcionar.", 'danger');
+                printLog("⚠ Intentando cargar map/tsa por si la licencia está cacheada en el mando...", 'warn');
+                try {
+                    const mapOperatorFb = document.getElementById('mqtt-user')?.value || "Operador";
+                    const mapParamFb = JSON.stringify({ userName: mapOperatorFb, elementPreName: mapOperatorFb || "GCS" });
+                    const mapResFb = window.djiBridge.platformLoadComponent("map", mapParamFb);
+                    logBridgeResult("Componente 'map' (fallback)", mapResFb);
+                    const tsaResFb = window.djiBridge.platformLoadComponent("tsa", "{}");
+                    logBridgeResult("Componente 'tsa' (fallback)", tsaResFb);
+
+                    // Veredicto final: re-comprobar la licencia tras la carga
+                    try {
+                        const finalCheck = window.djiBridge.platformIsVerified();
+                        const fc = typeof finalCheck === 'string' ? JSON.parse(finalCheck) : finalCheck;
+                        const finallyVerified = (fc && fc.code === 0 && (fc.data === true || fc.data === "true"));
+                        printLog(finallyVerified
+                            ? "✓ Licencia validada finalmente (estaba cacheada). Módulos operativos."
+                            : "❌ VEREDICTO: licencia SIN verificar. La sincronización de mapa NO funcionará. Conecta el mando a internet una vez para validar la licencia.", finallyVerified ? 'success' : 'danger');
+                    } catch (_) {
+                        printLog("❌ No se pudo confirmar el estado final de la licencia.", 'danger');
+                    }
+                } catch(mapErr) {
+                    printLog(`No se pudo cargar módulo de mapa/TSA: ${mapErr.message}`, 'danger');
+                }
                 return;
             }
 
@@ -767,13 +793,25 @@
                 // 4. Cargar módulo de elementos de mapa (requiere workspace + ws + api ya configurados)
                 // Spec (59 Pilot Cloud JSBridge.md §Map Module):
                 //   userName      — nombre del creador que aparece en cada elemento creado
-                //   elementPreName — prefijo del nombre auto-generado por Pilot 2
-                // Pasar {} vacío no es conforme a la especificación y puede impedir la sincronización.
+                //   elementPreName — prefijo del nombre auto-generado por Pilot 2 (DEBE ser no-vacío)
+                // CRÍTICO: elementPreName vacío ("") puede impedir que el módulo se inicialice.
                 const mapOperator = document.getElementById('mqtt-user')?.value || "Operador";
-                const mapParam = JSON.stringify({ userName: mapOperator, elementPreName: "" });
-                printLog(`Cargando módulo de Elementos de Mapa (userName=${mapOperator})...`, 'info');
+                const mapPreName  = mapOperator || "GCS";
+                const mapParam = JSON.stringify({ userName: mapOperator, elementPreName: mapPreName });
+                printLog(`Cargando módulo de Elementos de Mapa (userName=${mapOperator}, elementPreName=${mapPreName})...`, 'info');
                 const mapRes = window.djiBridge.platformLoadComponent("map", mapParam);
                 logBridgeResult("Componente 'map'", mapRes);
+
+                // 5. Cargar módulo TSA (Situational Awareness) — spec doc 59 §TSA Module.
+                // Requiere los módulos cloud (thing) y ws ya cargados. Param: "{}" literal.
+                // Con TSA activo, el RC llama a GET /manage/api/v1/.../devices/topologies
+                // y muestra los demás drones del workspace en su mapa (push device_osd).
+                printLog("Cargando módulo TSA (Situational Awareness)...", 'info');
+                const tsaRes = window.djiBridge.platformLoadComponent("tsa", "{}");
+                logBridgeResult("Componente 'tsa'", tsaRes);
+
+                // 6. Vigilar la salud del canal WS (wsGetConnectState cada 10s)
+                startWsStateMonitor();
             } catch (err) {
                 printLog(`Error al registrar propiedades de la sesión: ${err.message}`, 'danger');
             }
@@ -822,6 +860,50 @@
                 printLog(`[WebSocket Callback] Estado recibido: ${res}`, 'info');
             }
         };
+
+        // ── Callbacks de ciclo de vida de Pilot 2 (spec doc 59) ──────────────────
+        // onBackClick: Pilot invoca esto al pulsar atrás en el webview.
+        // Devolver false → Pilot ejecuta su comportamiento por defecto (cerrar página).
+        window.onBackClick = function() {
+            printLog("[Pilot] Botón atrás pulsado — comportamiento por defecto.", 'info');
+            return false;
+        };
+
+        // onStopPlatform: Pilot invoca esto cuando el usuario desconecta la
+        // plataforma cloud desde la UI de Pilot 2. Limpiamos el monitor de WS.
+        window.onStopPlatform = function() {
+            printLog("[Pilot] Plataforma cloud detenida por el usuario (onStopPlatform).", 'warn');
+            if (window._wsStateMonitor) {
+                clearInterval(window._wsStateMonitor);
+                window._wsStateMonitor = null;
+            }
+        };
+
+        // Monitor del estado del canal WS (wsGetConnectState) — detecta caídas
+        // del WS tras la conexión inicial y las registra en el log de pantalla.
+        function startWsStateMonitor() {
+            if (window._wsStateMonitor || !window.djiBridge || !window.djiBridge.wsGetConnectState) return;
+            let lastState = null;
+            window._wsStateMonitor = setInterval(() => {
+                try {
+                    const raw = window.djiBridge.wsGetConnectState();
+                    let connected;
+                    try {
+                        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                        connected = (parsed && typeof parsed === 'object')
+                            ? (parsed.data === true || parsed.data === "true")
+                            : !!parsed;
+                    } catch (_) { connected = !!raw; }
+
+                    if (lastState !== null && connected !== lastState) {
+                        printLog(connected
+                            ? "✓ Canal WS restablecido."
+                            : "✗ Canal WS caído — Pilot reintentará la conexión.", connected ? 'success' : 'danger');
+                    }
+                    lastState = connected;
+                } catch (e) { /* bridge no disponible */ }
+            }, 10000);
+        }
 
         async function conectarDron() {
             // Cancelar cualquier temporizador de autoconexión por si acaso

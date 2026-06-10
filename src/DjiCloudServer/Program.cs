@@ -187,6 +187,38 @@ app.UseMqttServer(server => {
             adminData.SetDeviceClientIp(e.ClientId, ip);
             app.Logger.LogDebug("[MQTT] IP origen registrada. ClientId='{ClientId}' IP={ClientIp}", e.ClientId, ip);
         }
+
+        // TSA (Situational Awareness) — spec DJI doc 58:
+        // Push device_online con payload TopologyDeviceDTO (como pushDeviceOnlineTopo
+        // de la demo Java) → el RC llama a GET /manage/api/.../devices/topologies.
+        // Filtrar clientes DRC ("drc-...") y clientes genéricos sin SN real.
+        var clientIdStr = e.ClientId ?? "";
+        if (!clientIdStr.StartsWith("drc-", StringComparison.Ordinal))
+        {
+            var connTypeCode = adminData.GetDeviceTypeCode(clientIdStr);
+            var connSubType  = adminData.GetDeviceSubtypeCode(clientIdStr);
+            var connDomain   = connTypeCode == 144 ? 2 : 0;
+            var tsaNotifier  = app.Services.GetRequiredService<IMapSyncNotifier>();
+            _ = tsaNotifier.NotifyDeviceOnlineAsync(new
+            {
+                sn              = clientIdStr,
+                online_status   = true,
+                device_callsign = clientIdStr,
+                user_id         = "pilot",
+                user_callsign   = clientIdStr,
+                domain          = connDomain.ToString(),
+                device_model    = new
+                {
+                    domain   = connDomain.ToString(),
+                    type     = (connTypeCode > 0 ? connTypeCode : 0).ToString(),
+                    sub_type = connSubType.ToString(),
+                    key      = $"{connDomain}-{(connTypeCode > 0 ? connTypeCode : 0)}-{connSubType}"
+                },
+                gateway_sn      = ""
+            });
+            app.Logger.LogDebug("[TSA] device_online WS push → ClientId={ClientId}", clientIdStr);
+        }
+
         return Task.CompletedTask;
     };
 
@@ -227,6 +259,17 @@ app.UseMqttServer(server => {
         var adminData = app.Services.GetRequiredService<IAdminDataService>();
         adminData.RecordMqttEvent(e.ClientId ?? "Unknown", "", "DISCONNECTED", "Cliente desconectado del broker MQTT");
         adminData.SetDeviceOnlineState(e.ClientId ?? "Unknown", e.ClientId ?? "Unknown", "Cliente MQTT", false);
+
+        // TSA — spec DJI doc 58: push device_offline {sn, online_status:false}
+        // (como pushDeviceOfflineTopo de la demo Java) → el RC actualiza su mapa
+        var discClientId = e.ClientId ?? "";
+        if (!discClientId.StartsWith("drc-", StringComparison.Ordinal))
+        {
+            var tsaNotifier = app.Services.GetRequiredService<IMapSyncNotifier>();
+            _ = tsaNotifier.NotifyDeviceOfflineAsync(discClientId);
+            app.Logger.LogDebug("[TSA] device_offline WS push → ClientId={ClientId}", discClientId);
+        }
+
         return Task.CompletedTask;
     };
 
@@ -352,7 +395,7 @@ app.UseMqttServer(server => {
             }
         }
 
-        // ── Parsear eventos HMS (Health Management System) ────────────────────
+        // ── Parsear eventos HMS (Health Management System) + events_reply ─────
         if (topic.StartsWith("thing/product/") && topic.EndsWith("/events"))
         {
             var snEvt = topic.Split('/').ElementAtOrDefault(2) ?? "";
@@ -360,6 +403,35 @@ app.UseMqttServer(server => {
             {
                 using var evDoc = JsonDocument.Parse(payload);
                 var evRoot = evDoc.RootElement;
+
+                // ── events_reply obligatorio cuando need_reply=1 (doc 27) ──────────
+                // Sin esta respuesta el dispositivo reintenta el evento o bloquea el
+                // flujo que lo originó (p.ej. ciclo de subida de media).
+                if (evRoot.TryGetProperty("need_reply", out var nrEl)
+                    && nrEl.ValueKind == JsonValueKind.Number && nrEl.GetInt32() == 1)
+                {
+                    var evTid    = evRoot.TryGetProperty("tid",    out var evT) ? evT.GetString() ?? "" : "";
+                    var evBid    = evRoot.TryGetProperty("bid",    out var evB) ? evB.GetString() ?? "" : "";
+                    var evMethod = evRoot.TryGetProperty("method", out var evM) ? evM.GetString() ?? "" : "";
+
+                    var evReplyJson = JsonSerializer.Serialize(new
+                    {
+                        tid       = evTid,
+                        bid       = evBid,
+                        method    = evMethod,
+                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        data      = new { result = 0 }
+                    });
+                    var evReplyMsg = new MqttApplicationMessageBuilder()
+                        .WithTopic($"thing/product/{snEvt}/events_reply")
+                        .WithPayload(System.Text.Encoding.UTF8.GetBytes(evReplyJson))
+                        .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                        .Build();
+                    await server.InjectApplicationMessage(
+                        new InjectedMqttApplicationMessage(evReplyMsg) { SenderClientId = serverClientId });
+                    app.Logger.LogInformation("[MQTT] events_reply [{Method}] enviado → {Sn} (need_reply=1)",
+                        evMethod, snEvt);
+                }
                 if (evRoot.TryGetProperty("data",   out var evData)   &&
                     evData.TryGetProperty("event",  out var evType)   &&
                     evType.GetString() == "hms"                        &&
@@ -384,6 +456,71 @@ app.UseMqttServer(server => {
             catch (Exception ex)
             {
                 app.Logger.LogWarning(ex, "[MQTT-HMS] Error parseando evento HMS. SN={Sn}", snEvt);
+            }
+        }
+
+        // ── requests → requests_reply (doc 27) ─────────────────────────────────
+        // El dispositivo pide información al servidor (p.ej. credenciales temporales
+        // de almacenamiento con method=storage_config_get). Sin respuesta, el ciclo
+        // que originó la petición (subida de media, etc.) queda bloqueado en el RC.
+        if (topic.StartsWith("thing/product/") && topic.EndsWith("/requests"))
+        {
+            var snReq = topic.Split('/').ElementAtOrDefault(2) ?? "";
+            try
+            {
+                using var reqDoc = JsonDocument.Parse(payload);
+                var reqRoot   = reqDoc.RootElement;
+                var reqTid    = reqRoot.TryGetProperty("tid",    out var rqT) ? rqT.GetString() ?? "" : "";
+                var reqBid    = reqRoot.TryGetProperty("bid",    out var rqB) ? rqB.GetString() ?? "" : "";
+                var reqMethod = reqRoot.TryGetProperty("method", out var rqM) ? rqM.GetString() ?? "" : "";
+
+                // output según el method solicitado
+                object reqOutput;
+                if (reqMethod == "storage_config_get")
+                {
+                    // Misma configuración mock que POST /storage/api/v1/.../sts (MediaController)
+                    var stsServerIp = !string.IsNullOrWhiteSpace(options.ServerIp) ? options.ServerIp : "192.168.1.150";
+                    reqOutput = new
+                    {
+                        bucket      = "local-media-bucket",
+                        credentials = new
+                        {
+                            access_key_id     = "mock_access_key_id",
+                            access_key_secret = "mock_access_key_secret",
+                            expire            = 3600,
+                            security_token    = "mock_security_token"
+                        },
+                        endpoint          = $"http://{stsServerIp}:5072/api/media/mock-s3",
+                        object_key_prefix = "media",
+                        provider          = "minio",
+                        region            = "local-lan"
+                    };
+                }
+                else
+                {
+                    reqOutput = new { };
+                }
+
+                var reqReplyJson = JsonSerializer.Serialize(new
+                {
+                    tid       = reqTid,
+                    bid       = reqBid,
+                    method    = reqMethod,
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    data      = new { result = 0, output = reqOutput }
+                });
+                var reqReplyMsg = new MqttApplicationMessageBuilder()
+                    .WithTopic($"thing/product/{snReq}/requests_reply")
+                    .WithPayload(System.Text.Encoding.UTF8.GetBytes(reqReplyJson))
+                    .WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce)
+                    .Build();
+                await server.InjectApplicationMessage(
+                    new InjectedMqttApplicationMessage(reqReplyMsg) { SenderClientId = serverClientId });
+                app.Logger.LogInformation("[MQTT] requests_reply [{Method}] enviado → {Sn}", reqMethod, snReq);
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning(ex, "[MQTT] Error procesando requests. SN={Sn}", snReq);
             }
         }
 
@@ -649,8 +786,47 @@ app.UseMqttServer(server => {
                                             app.Logger.LogInformation("[TOPO] Aeronave SN={AcSn} type={Type} sub_type={SubType} pareada con gateway={GwSn}",
                                                 subSn, acType, acSubType, sn);
                                             adminData.AddLog("INFO", "Topología", $"Aeronave {subSn}: type={acType} sub_type={acSubType} ← gateway {sn}");
+
+                                            // TSA — como updateTopoOnline → pushDeviceOnlineTopo de la demo Java:
+                                            // device_online con la topología completa de la aeronave + gateway_sn
+                                            var topoNotifier = app.Services.GetRequiredService<IMapSyncNotifier>();
+                                            _ = topoNotifier.NotifyDeviceOnlineAsync(new
+                                            {
+                                                sn              = subSn,
+                                                online_status   = true,
+                                                device_callsign = subSn,
+                                                user_id         = "pilot",
+                                                user_callsign   = subSn,
+                                                domain          = "0",
+                                                device_model    = new
+                                                {
+                                                    domain   = "0",
+                                                    type     = (acType > 0 ? acType : 0).ToString(),
+                                                    sub_type = (acSubType >= 0 ? acSubType : 0).ToString(),
+                                                    key      = $"0-{(acType > 0 ? acType : 0)}-{(acSubType >= 0 ? acSubType : 0)}"
+                                                },
+                                                gateway_sn      = sn
+                                            });
                                         }
                                     }
+                                }
+
+                                // #7 device_update_topo: sub_devices VACÍO = la aeronave se
+                                // desemparejó del gateway sin offline MQTT completo (doc 27,
+                                // "Sub-device offline"). Notificar offline de la aeronave
+                                // previamente pareada + update_topo para que los RC refresquen.
+                                if (subDevicesEl.GetArrayLength() == 0)
+                                {
+                                    var prevAircraft = adminData.GetAircraftForGateway(sn);
+                                    var topoChgNotifier = app.Services.GetRequiredService<IMapSyncNotifier>();
+                                    if (!string.IsNullOrEmpty(prevAircraft))
+                                    {
+                                        _ = topoChgNotifier.NotifyDeviceOfflineAsync(prevAircraft);
+                                        app.Logger.LogInformation(
+                                            "[TOPO] Aeronave {AcSn} desemparejada del gateway {GwSn} (sub_devices vacío)",
+                                            prevAircraft, sn);
+                                    }
+                                    _ = topoChgNotifier.NotifyDeviceUpdateTopoAsync();
                                 }
                             }
                         }
@@ -990,6 +1166,16 @@ app.UseMqttServer(server => {
                                 // marcador de la aeronave (evita el salto errático).
                                 await hubContext.Clients.All.SendAsync(
                                     "UpdateGatewayPosition", sn, latitude, longitude);
+
+                                // TSA — como osdRemoteControl → pushOsdDataToPilot de la demo Java:
+                                // device_osd del gateway hacia los pilotos con host reducido
+                                // {latitude, longitude, height}. (gateway_osd es solo para web,
+                                // que en nuestro caso va por SignalR.)
+                                if (adminData.ShouldPushSignalR(sn + "_ws_gwosd", 1000))
+                                {
+                                    var gwOsdNotifier = app.Services.GetRequiredService<IMapSyncNotifier>();
+                                    _ = gwOsdNotifier.NotifyGatewayOsdAsync(sn, latitude, longitude, altitude);
+                                }
                             }
                             else
                             {
@@ -1012,6 +1198,20 @@ app.UseMqttServer(server => {
                                 batteryPercent, gpsNumber, sdrFreqBand,
                                 modeCode, remainFlightTime, horizontalSpeed, verticalSpeed,
                                 attitudePitch, attitudeRoll, gpsFixed > 0);
+
+                            // TSA (Situational Awareness) — spec DJI doc 58: device_osd WS push
+                            // El servidor reenvía la posición de cada aeronave al RC vía WS a 1 Hz.
+                            // El RC muestra el icono del dron moviéndose en su propio mapa de situación.
+                            // Solo para aeronaves reales (no RC/Gateway): isGatewayOsd == false.
+                            if (!isGatewayOsd && adminData.ShouldPushSignalR(effectiveSn + "_ws_osd", 1000))
+                            {
+                                var osdNotifier = app.Services.GetRequiredService<IMapSyncNotifier>();
+                                _ = osdNotifier.NotifyDeviceOsdAsync(
+                                    effectiveSn,
+                                    latitude, longitude, altitude,
+                                    heading, elevation,
+                                    horizontalSpeed, verticalSpeed);
+                            }
                         }
                         skipPosition:; // destino del goto cuando lat/lon = (0,0)
 
@@ -1058,13 +1258,51 @@ app.UseMqttServer(server => {
 
 // Crear directorios estáticos necesarios en wwwroot
 var wwwroot = app.Environment.WebRootPath;
-foreach (var dir in new[] { "hls", "videos", "klv", "missions", "routes", "flights", "mqtt_logs" })
+foreach (var dir in new[] { "hls", "videos", "klv", "missions", "routes", "flights", "mqtt_logs", "media", "waylines" })
     Directory.CreateDirectory(Path.Combine(wwwroot, dir));
 
 // Detener ffmpeg limpiamente al apagar la aplicación
 var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
 lifetime.ApplicationStopping.Register(() =>
     app.Services.GetRequiredService<IFfmpegService>().Stop());
+
+// ── TSA: detección de offline por inactividad (cada 30s) ─────────────────────
+// Equivalente al GlobalScheduleService de la demo Java (TTL Redis + tarea programada).
+// Los drones que dejan de emitir OSD >15s se marcan offline (cutoff en GetDevices)
+// y se notifica device_offline a los RC conectados para que actualicen su mapa TSA.
+_ = Task.Run(async () =>
+{
+    var lastOnlineSns = new HashSet<string>();
+    using var offlineTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+    try
+    {
+        while (await offlineTimer.WaitForNextTickAsync(lifetime.ApplicationStopping))
+        {
+            try
+            {
+                var adminSvc = app.Services.GetRequiredService<IAdminDataService>();
+                var tsaSvc   = app.Services.GetRequiredService<IMapSyncNotifier>();
+                // GetDevices aplica el cutoff de inactividad y marca offline
+                var nowOnline = adminSvc.GetDevices()
+                    .Where(d => d.IsOnline && d.DeviceType != "Cliente MQTT")
+                    .Select(d => d.Sn)
+                    .ToHashSet();
+
+                foreach (var sn in lastOnlineSns.Except(nowOnline))
+                {
+                    _ = tsaSvc.NotifyDeviceOfflineAsync(sn);
+                    app.Logger.LogInformation("[TSA] device_offline por inactividad → SN={Sn}", sn);
+                }
+                lastOnlineSns = nowOnline;
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogDebug(ex, "[TSA] Error en chequeo periódico de offline");
+            }
+        }
+    }
+    catch (OperationCanceledException) { /* apagado de la aplicación */ }
+});
 
 // Archivos estáticos con MIME types explícitos para HLS
 var mimeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
@@ -1076,18 +1314,41 @@ mimeProvider.Mappings[".klv"]  = "application/octet-stream";
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? "";
-    // Log DJI Cloud API requests (/api/ and /map/api/), but skip admin panel calls
-    bool isDjiApiPath = path.StartsWith("/api/") || path.StartsWith("/map/api/");
-    if (!isDjiApiPath || path.StartsWith("/api/admin"))
+    var method = context.Request.Method;
+    var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    // ── Capturar body para POST/PUT en paths de mapa ──────────────────────────
+    // Permite diagnosticar qué envía el RC cuando crea elementos (debug de "toto").
+    // Solo para peticiones del RC (no localhost) y métodos con body.
+    string? requestBodySnippet = null;
+    if ((method == "POST" || method == "PUT") &&
+        (path.StartsWith("/map/api/") || path.StartsWith("/api/")) &&
+        !ip.Contains("::1") && !ip.Contains("127.0.0.1"))
+    {
+        context.Request.EnableBuffering();
+        try
+        {
+            var bodyReader = new System.IO.StreamReader(context.Request.Body, leaveOpen: true);
+            var fullBody = await bodyReader.ReadToEndAsync();
+            context.Request.Body.Position = 0;
+            if (fullBody.Length > 0)
+                requestBodySnippet = fullBody.Length > 300 ? fullBody[..300] + "…" : fullBody;
+        }
+        catch { /* no crítico */ }
+    }
+
+    // Skip admin panel paths from being logged (too noisy)
+    bool skipLog = path.StartsWith("/api/admin") || path.StartsWith("/signalr") ||
+                   path.StartsWith("/_blazor") || path == "/favicon.ico" ||
+                   path.StartsWith("/lib/") || path.EndsWith(".js") || path.EndsWith(".css");
+
+    if (skipLog)
     {
         await next(context);
         return;
     }
 
     var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-    var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-    var method = context.Request.Method;
-
     try
     {
         await next(context);
@@ -1097,20 +1358,56 @@ app.Use(async (context, next) =>
         stopwatch.Stop();
         var statusCode = context.Response.StatusCode;
         var elapsed = stopwatch.ElapsedMilliseconds;
-        
+
         var adminData = context.RequestServices.GetRequiredService<IAdminDataService>();
         adminData.RecordRequest(method, path, statusCode, elapsed, ip);
+
+        // Si el RC envió un body en un POST/PUT, loguearlo para diagnóstico
+        if (requestBodySnippet != null)
+        {
+            // Solo loguear si parece interesante (contiene "name", "element", "toto", etc.)
+            bool isInteresting = statusCode == 404 ||
+                                 requestBodySnippet.Contains("toto", StringComparison.OrdinalIgnoreCase) ||
+                                 requestBodySnippet.Contains("name") ||
+                                 path.Contains("element");
+            if (isInteresting)
+            {
+                adminData.AddLog("INFO", "HTTP-Body",
+                    $"{method} {path} [{statusCode}] body={requestBodySnippet}");
+                app.Logger.LogInformation("[HTTP-Body] {Method} {Path} [{Status}] body={Body}",
+                    method, path, statusCode, requestBodySnippet);
+            }
+        }
+
+        // Loguear 404s del RC para detectar endpoints no implementados
+        if (statusCode == 404 && !ip.Contains("::1"))
+        {
+            adminData.AddLog("WARN", "HTTP-404",
+                $"RC llamó a endpoint no implementado: {method} {path}");
+            app.Logger.LogWarning("[HTTP-404] {Method} {Path} desde {IP}", method, path, ip);
+        }
     }
 });
 
 // Habilitar soporte de WebSockets crudos para el mando DJI Pilot 2
-app.UseWebSockets();
+// KeepAliveInterval envía pings automáticos para evitar que NAT/routers corten la conexión silenciosamente
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 app.Use(async (context, next) =>
 {
     if (context.Request.Path == "/ws")
     {
         if (context.WebSockets.IsWebSocketRequest)
         {
+            // Si el bloqueo está activo, rechazar la conexión para mantener el RC offline.
+            // Esto permite al usuario crear elementos mientras Pilot 2 cree que no hay servidor.
+            var wsManagerCheck = context.RequestServices.GetRequiredService<IDjiWebSocketManager>();
+            if (wsManagerCheck.BlockNewConnections)
+            {
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                app.Logger.LogInformation("[WebSocket] Conexión rechazada — WS bloqueado (admin/block-ws activo)");
+                return;
+            }
+
             using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
             app.Logger.LogInformation("[WebSocket] Mando conectado.");
 
@@ -1118,24 +1415,163 @@ app.Use(async (context, next) =>
             adminData.AddLog("INFO", "WebSocket", "Mando conectado al canal WebSocket (/ws)");
 
             var wsManager = context.RequestServices.GetRequiredService<IDjiWebSocketManager>();
-            wsManager.Add(webSocket);
+            // Scoping multi-workspace: workspace de la query (?workspace_id=) o el del despliegue
+            var wsWorkspaceId = context.Request.Query["workspace_id"].FirstOrDefault()
+                ?? context.RequestServices.GetRequiredService<IOptions<DjiCloudOptions>>().Value.WorkspaceId;
+            wsManager.Add(webSocket, wsWorkspaceId);
 
-            var buffer = new byte[4096];
+            // Notificar al mapa web que el mando RC ha conectado su WebSocket
+            try
+            {
+                var wsHub = context.RequestServices.GetRequiredService<IHubContext<TelemetryHub>>();
+                _ = wsHub.Clients.All.SendAsync("RcWsConnected");
+            }
+            catch { /* no crítico */ }
+
+            // Enviar map_group_refresh al reconectarse con un breve delay:
+            // – El delay (800ms) permite que el WS termine de inicializarse antes de recibir datos.
+            //   Sin él, el RC cierra el WS inmediatamente (race condition de 4ms).
+            // – Solo enviamos el grupo App Shared (zero-UUID), que es el único que DJI Pilot 2
+            //   conoce. Enviar el grupo Web causaba que Pilot 2 lo desconociera y entrara en
+            //   estado de error, cerrando el WS.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(800);
+                try
+                {
+                    var mapNotifier = context.RequestServices.GetRequiredService<IMapSyncNotifier>();
+                    await mapNotifier.NotifyGroupRefreshAsync(new[] { "00000000-0000-0000-0000-000000000000" });
+                    app.Logger.LogInformation("[WebSocket] map_group_refresh (App Shared) enviado al reconectar mando.");
+                }
+                catch (Exception ex)
+                {
+                    app.Logger.LogWarning(ex, "[WebSocket] No se pudo enviar map_group_refresh al reconectar.");
+                }
+            });
+
+            // Buffer grande para aceptar payloads completos (elementos GeoJSON pueden ser varios KB)
+            var buffer = new byte[65536];
             try
             {
                 while (webSocket.State == System.Net.WebSockets.WebSocketState.Open)
                 {
-                    var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                    // Acumular frames hasta completar el mensaje completo
+                    var ms = new System.IO.MemoryStream();
+                    System.Net.WebSockets.WebSocketReceiveResult result;
+                    do
+                    {
+                        result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                        ms.Write(buffer, 0, result.Count);
+                    } while (!result.EndOfMessage);
+
                     if (result.MessageType == System.Net.WebSockets.WebSocketMessageType.Close)
                     {
                         await webSocket.CloseAsync(System.Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Cierre solicitado", CancellationToken.None);
                         break;
                     }
-                    // Mensajes entrantes del mando (heartbeat, etc.) — loguear para diagnóstico
-                    if (result.Count > 0)
+
+                    if (ms.Length == 0) continue;
+                    var msg = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+
+                    // ── Heartbeat "ping" ───────────────────────────────────────────────────
+                    // DJI Pilot 2 envía "ping" (texto plano) cada ~3s. La demo Java oficial
+                    // NO responde (WebSocketDefaultHandler solo lo loguea) — alineado con ella,
+                    // lo ignoramos en silencio. El keep-alive a nivel de protocolo WS lo
+                    // gestiona ASP.NET Core (KeepAliveInterval en UseWebSockets).
+                    if (msg == "ping")
+                        continue;
+
+                    // ── Parsear mensajes JSON entrantes del mando ──────────────────────────
+                    // DJI Pilot 2 puede enviar eventos de mapa via WS en lugar de REST cuando
+                    // está conectado. Si ignoramos estos mensajes, los elementos se marcan como
+                    // "ya sincronizados" en el RC y no vuelven a aparecer en el batch REST.
+                    try
                     {
-                        var msg = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        app.Logger.LogDebug("[WebSocket] Mensaje entrante del mando: {Msg}", msg);
+                        var json = Newtonsoft.Json.Linq.JObject.Parse(msg);
+                        var bizCode = json["biz_code"]?.ToString() ?? json["method"]?.ToString() ?? "";
+
+                        app.Logger.LogInformation("[WebSocket] Mensaje RC biz_code='{BizCode}' payload={Payload}",
+                            bizCode, msg.Length > 500 ? msg[..500] + "…" : msg);
+                        adminData.AddLog("INFO", "WebSocket", $"Mensaje RC: biz_code={bizCode}");
+
+                        // Gestión de elementos de mapa enviados via WS por el RC
+                        if (bizCode == "map_element_create" || bizCode == "map_element_update")
+                        {
+                            var mapData = context.RequestServices.GetRequiredService<IMapDataService>();
+                            var notifier = context.RequestServices.GetRequiredService<IMapSyncNotifier>();
+
+                            // El payload puede ser un solo elemento o un array bajo "data"
+                            var dataNode = json["data"];
+                            var elements = dataNode is Newtonsoft.Json.Linq.JArray arr
+                                ? arr.Cast<Newtonsoft.Json.Linq.JObject>()
+                                : new[] { dataNode as Newtonsoft.Json.Linq.JObject }.Where(x => x != null);
+
+                            foreach (var elemJson in elements)
+                            {
+                                if (elemJson == null) continue;
+                                var elName = elemJson["name"]?.ToString() ?? "";
+                                // Extraer operador del nombre automático del RC (p.ej. "local_user 50" → "local_user")
+                                string? elUser = null;
+                                if (!string.IsNullOrEmpty(elName))
+                                {
+                                    var elLastSpace = elName.LastIndexOf(' ');
+                                    elUser = elLastSpace > 0 && int.TryParse(elName[(elLastSpace + 1)..], out _)
+                                        ? elName[..elLastSpace] : elName;
+                                }
+                                var elResource = elemJson["resource"] as Newtonsoft.Json.Linq.JObject;
+                                // user_name persistido en el resource — alineado con la demo Java
+                                if (elResource != null && string.IsNullOrEmpty(elResource["user_name"]?.ToString()))
+                                    elResource["user_name"] = elUser ?? "pilot";
+
+                                var el = new DjiCloudServer.Models.MapElement
+                                {
+                                    Id       = elemJson["id"]?.ToString() ?? Guid.NewGuid().ToString(),
+                                    Name     = elName,
+                                    UserName = elUser,
+                                    Resource = elResource
+                                };
+                                var groupId = elemJson["group_id"]?.ToString() ?? "00000000-0000-0000-0000-000000000000";
+                                var saved = mapData.AddElement(groupId, el);
+                                app.Logger.LogInformation("[WebSocket] Elemento guardado via WS: id={Id} nombre='{Name}' grupo={Group}",
+                                    saved.Id, saved.Name, groupId);
+                                _ = notifier.NotifyCreateAsync(saved);
+                                // Pilot 2 v17 ignora map_element_create — refresh para que otros RC re-descarguen
+                                // (#1.7: configurable via DjiCloud:LegacyGroupRefresh)
+                                if (context.RequestServices.GetRequiredService<IOptions<DjiCloudOptions>>().Value.LegacyGroupRefresh)
+                                    _ = notifier.NotifyGroupRefreshAsync(new[] { groupId });
+                            }
+                        }
+                        else if (bizCode == "map_element_delete")
+                        {
+                            var mapData = context.RequestServices.GetRequiredService<IMapDataService>();
+                            var notifier = context.RequestServices.GetRequiredService<IMapSyncNotifier>();
+                            var dataNode = json["data"];
+                            var ids = dataNode is Newtonsoft.Json.Linq.JArray idArr
+                                ? idArr.Select(x => x.ToString())
+                                : new[] { dataNode?["id"]?.ToString() }.Where(x => x != null);
+
+                            foreach (var id in ids)
+                            {
+                                if (string.IsNullOrEmpty(id)) continue;
+                                var el = mapData.GetElement(id);
+                                var gid = el?.GroupId ?? "";
+                                mapData.DeleteElement(id);
+                                _ = notifier.NotifyDeleteAsync(id, gid);
+                                app.Logger.LogInformation("[WebSocket] Elemento eliminado via WS: id={Id}", id);
+                            }
+                        }
+                        else
+                        {
+                            // Heartbeat u otros mensajes — solo loguear
+                            app.Logger.LogDebug("[WebSocket] Mensaje no gestionado biz_code='{BizCode}'", bizCode);
+                        }
+                    }
+                    catch (Exception parseEx)
+                    {
+                        // No es JSON o formato inesperado — loguear raw
+                        app.Logger.LogWarning("[WebSocket] Mensaje no parseble ({Len} bytes): {Raw}",
+                            ms.Length, msg.Length > 200 ? msg[..200] : msg);
+                        adminData.AddLog("WARN", "WebSocket", $"Mensaje no parseble: {(msg.Length > 100 ? msg[..100] : msg)}");
                     }
                 }
             }
@@ -1148,6 +1584,14 @@ app.Use(async (context, next) =>
                 wsManager.Remove(webSocket);
                 app.Logger.LogInformation("[WebSocket] Mando desconectado.");
                 adminData.AddLog("WARN", "WebSocket", "Mando desconectado del canal WebSocket");
+
+                // Notificar al mapa web que el mando RC ha perdido su WebSocket
+                try
+                {
+                    var wsHub = context.RequestServices.GetRequiredService<IHubContext<TelemetryHub>>();
+                    _ = wsHub.Clients.All.SendAsync("RcWsDisconnected");
+                }
+                catch { /* no crítico */ }
             }
         }
         else
@@ -1244,26 +1688,31 @@ _ = Task.Run(async () =>
             var mqttSvc   = app.Services.GetRequiredService<IMqttService>();
             var adminSvc  = app.Services.GetRequiredService<IAdminDataService>();
             var ts        = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var probeJson = System.Text.Json.JsonSerializer.Serialize(new { timestamp = ts });
+            // Envelope común DJI (doc 27): tid, bid, timestamp, data — obligatorio en todos los mensajes
+            var probeJson = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                tid       = Guid.NewGuid().ToString(),
+                bid       = Guid.NewGuid().ToString(),
+                timestamp = ts,
+                data      = new { }
+            });
 
             foreach (var gw in adminSvc.GetGateways().Where(g => g.IsOnline))
             {
-                // Probe de red al gateway
+                // Probe de red SOLO al gateway: sys/product/{sn}/... es dominio del gateway
+                // (el RC solo se suscribe a su propio SN — la aeronave nunca lo recibe).
                 await mqttSvc.PublishAsync($"sys/product/{gw.GatewaySn}/network/probe",
                     probeJson, MqttQualityOfServiceLevel.AtMostOnce);
 
-                // Probe de red a la aeronave pareada (si existe)
-                if (!string.IsNullOrEmpty(gw.AircraftSn))
-                    await mqttSvc.PublishAsync($"sys/product/{gw.AircraftSn}/network/probe",
-                        probeJson, MqttQualityOfServiceLevel.AtMostOnce);
-
                 // Heartbeat DRC — obligatorio cada ≤3 s para que DJI mantenga el canal abierto.
-                // El campo 'seq' debe incrementarse en cada envío (spec DJI Cloud API).
+                // Formato spec doc 32 (DRC-Heartbeat): seq en la RAÍZ (mismo nivel que data),
+                // timestamp dentro de data:  { "data": {"timestamp": ...}, "method": "heart_beat", "seq": N }
                 var seq = _drcHeartbeatSeq.AddOrUpdate(gw.GatewaySn, 1, (_, v) => v + 1);
                 var hbPayload = System.Text.Json.JsonSerializer.Serialize(new
                 {
+                    data   = new { timestamp = ts },
                     method = "heart_beat",
-                    data = new { seq, timestamp = ts }
+                    seq
                 });
                 try
                 {

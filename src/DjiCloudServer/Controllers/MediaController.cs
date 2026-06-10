@@ -166,14 +166,79 @@ public class MediaController : ControllerBase
     }
 
     /// <summary>
-    /// Mock del endpoint S3 PUT/POST de MinIO para simular subidas exitosas de ficheros.
-    /// Retorna HTTP 200 OK para que Pilot 2 crea que se subió con éxito.
+    /// Endpoint S3-compatible (estilo MinIO) para las subidas de DJI Pilot 2.
+    /// El cuerpo del PUT/POST se PERSISTE en wwwroot/media/{object_key} — antes
+    /// se descartaba y el ciclo de media terminaba sin guardar nada (gap #1.9).
     /// </summary>
     [HttpPut("/api/media/mock-s3/{**path}")]
     [HttpPost("/api/media/mock-s3/{**path}")]
     [DisableRequestSizeLimit]
-    public IActionResult MockS3Upload(string path)
+    public async Task<IActionResult> MockS3Upload(string path)
     {
+        // Sanitizar el object_key: impedir path traversal fuera de wwwroot/media
+        var mediaRoot = Path.GetFullPath(Path.Combine(_env.WebRootPath, "media"));
+        var target    = Path.GetFullPath(Path.Combine(mediaRoot, path.Replace('\\', '/')));
+        if (!target.StartsWith(mediaRoot, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { error = "object_key inválido" });
+
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        await using (var fs = System.IO.File.Create(target))
+        {
+            await Request.Body.CopyToAsync(fs);
+        }
+
+        // Registrar el object_key como subido para que fast-upload lo detecte
+        _uploadedKeys.TryAdd(path, 0);
         return Ok();
     }
+
+    // ─── DJI Cloud API — ciclo de subida de media ─────────────────────────────
+
+    // POST /media/api/v1/workspaces/{wid}/fast-upload
+    // DJI Pilot 2 llama antes de subir un fichero para comprobar si ya existe.
+    // Si devuelve 404, el RC sube igualmente pero nunca puede confirmar la subida
+    // y entra en bucle infinito. Con esta respuesta el ciclo avanza correctamente.
+    [HttpPost("/media/api/v1/workspaces/{workspaceId}/fast-upload")]
+    public IActionResult FastUpload(string workspaceId, [FromBody] Newtonsoft.Json.Linq.JObject body)
+    {
+        var objectKey = body?["object_key"]?.ToString() ?? "";
+        var name      = body?["name"]?.ToString() ?? "";
+
+        // Normalizar: buscar si el objeto ya fue subido al mock-S3
+        // La clave en _uploadedKeys incluye el prefijo del bucket: "local-media-bucket/wid/filename"
+        var fullKey = $"local-media-bucket/{workspaceId}/{name}";
+        var alreadyUploaded = !string.IsNullOrEmpty(fullKey) && _uploadedKeys.ContainsKey(fullKey);
+
+        return Ok(new
+        {
+            code    = 0,
+            message = "success",
+            data    = new
+            {
+                exist       = alreadyUploaded,
+                upload_id   = (string?)null,
+                file_parts  = Array.Empty<object>()
+            }
+        });
+    }
+
+    // POST /media/api/v1/workspaces/{wid}/upload-callback
+    // DJI Pilot 2 llama tras completar la subida S3 para confirmar que el servidor
+    // registró el fichero. Sin este endpoint (404), el RC entra en bucle infinito
+    // resubiendo el mismo fichero indefinidamente. Esta respuesta rompe el bucle.
+    [HttpPost("/media/api/v1/workspaces/{workspaceId}/upload-callback")]
+    public IActionResult UploadCallback(string workspaceId, [FromBody] Newtonsoft.Json.Linq.JObject body)
+    {
+        var objectKey = body?["object_key"]?.ToString() ?? "";
+        // Marcar como "confirmado" para que fast-upload lo detecte en futuras sesiones
+        if (!string.IsNullOrEmpty(objectKey))
+            _uploadedKeys.TryAdd($"local-media-bucket/{objectKey}", 0);
+
+        return Ok(new { code = 0, message = "success", data = new { } });
+    }
+
+    // Registro en memoria de object_keys subidos en esta sesión.
+    // Permite que fast-upload devuelva exist=true para ficheros ya recibidos,
+    // evitando resubidas innecesarias y el bucle infinito de upload-callback.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _uploadedKeys = new();
 }

@@ -360,7 +360,11 @@ public sealed class FfmpegService(ILogger<FfmpegService> logger) : IFfmpegServic
     public void Dispose()
     {
         Stop();
-        StopAllAsync().GetAwaiter().GetResult();
+        // Espera acotada en lugar de GetAwaiter().GetResult() sin límite:
+        // si un proceso ffmpeg se cuelga al cerrar, no retrasamos el shutdown
+        // de la aplicación más de 5 segundos.
+        try { StopAllAsync().Wait(TimeSpan.FromSeconds(5)); }
+        catch (Exception ex) { logger.LogWarning(ex, "[Streaming] Timeout/error deteniendo streams en Dispose"); }
 
         if (_mediaMtxProcess != null && !_mediaMtxProcess.HasExited)
         {

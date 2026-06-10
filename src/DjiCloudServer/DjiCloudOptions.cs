@@ -16,6 +16,21 @@ public class DjiCloudOptions
     /// sin necesidad de selección manual. Dejar vacío para detección automática.
     /// </summary>
     public string ServerIp { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Workspace por defecto del despliegue. Se usa para el scoping de mensajes
+    /// WebSocket/SignalR (los clientes sin workspace explícito se asignan a éste).
+    /// </summary>
+    public string WorkspaceId { get; set; } = "e3dea0f5-37f2-4d79-ae58-490af3228069";
+
+    /// <summary>
+    /// Compatibilidad con DJI Pilot 2 v17.x: enviar map_group_refresh tras cada
+    /// create/update/delete de elementos. La demo Java solo envía map_element_*,
+    /// pero ese firmware los ignora y solo re-descarga con group_refresh (verificado
+    /// empíricamente el 2026-06-10). Poner a false con firmwares que procesen los
+    /// push map_element_* directamente, para quedar 100% alineado con la demo.
+    /// </summary>
+    public bool LegacyGroupRefresh { get; set; } = true;
 }
 
 public class MqttOptions
