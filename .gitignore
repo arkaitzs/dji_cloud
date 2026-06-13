@@ -371,3 +371,14 @@ video2.jpg
 video3.png
 *.pcapng
 *.csv
+
+# Claves RSA para descifrado de logs de Pilot (NUNCA committear la privada)
+pilot_log_keys/
+
+# Configuración con credenciales reales DJI (usar appsettings.example.json como plantilla)
+src/DjiCloudServer/appsettings.json
+
+# Logs de Pilot descompilados/descifrados y volcados de diagnóstico (no publicar)
+2026_06_11/
+src/DjiCloudServer/wwwroot/pilot_logs/
+src/DjiCloudServer/wwwroot/waylines/

@@ -215,15 +215,21 @@ public class MapDataService : IMapDataService
 
     private void Load()
     {
-        try
+        // #2.7: lectura con recuperación — si map_elements.json está corrupto
+        // (crash a mitad de escritura), se restaura desde el backup .bak.
+        var store = AtomicJsonFile.ReadWithRecovery(
+            _filePath,
+            json => JsonConvert.DeserializeObject<MapStore>(json),
+            recoveredFrom => _logger.LogWarning(
+                "[MapData] map_elements.json corrupto — recuperado desde {Backup}", recoveredFrom));
+
+        if (store != null)
         {
-            if (!File.Exists(_filePath)) return;
-            var json = File.ReadAllText(_filePath);
-            _store = JsonConvert.DeserializeObject<MapStore>(json) ?? new MapStore();
+            _store = store;
         }
-        catch (Exception ex)
+        else if (File.Exists(_filePath))
         {
-            _logger.LogWarning(ex, "[MapData] Error cargando map_elements.json — usando store vacío");
+            _logger.LogError("[MapData] map_elements.json y su backup ilegibles — usando store vacío");
             _store = new MapStore();
         }
     }
@@ -232,7 +238,9 @@ public class MapDataService : IMapDataService
     {
         try
         {
-            File.WriteAllText(_filePath, JsonConvert.SerializeObject(_store, Formatting.Indented));
+            // #2.7: escritura atómica (tmp + File.Replace) con backup .bak —
+            // un crash durante el guardado ya no puede corromper el store.
+            AtomicJsonFile.Write(_filePath, JsonConvert.SerializeObject(_store, Formatting.Indented));
         }
         catch (Exception ex)
         {

@@ -1965,6 +1965,15 @@
                 <div id="route-color-picker" style="display:flex;gap:4px;flex-shrink:0;"></div>
             </div>
 
+            <!-- Modelo de dron destino (define los enums WPML; debe coincidir con la aeronave) -->
+            <div class="route-settings-row">
+                <label style="flex:1;">Modelo de dron
+                    <select id="route-drone-model" style="width:100%;" onchange="onDroneModelChange()">
+                        <!-- Rellenado dinámicamente desde DRONE_MODELS -->
+                    </select>
+                </label>
+            </div>
+
             <!-- Parámetros globales -->
             <div class="route-settings-row">
                 <label>Alt.def(m)
@@ -2262,6 +2271,44 @@
         const _mapElementMarkers = {};      // id → capa Leaflet
         const MAP_WORKSPACE_ID = 'e3dea0f5-37f2-4d79-ae58-490af3228069';
         let   _mapDrawMode = false;         // modo añadir punto activo
+
+        // Catálogo de modelos de dron con sus enums WPML (droneEnumValue/droneSubEnumValue/
+        // payloadEnumValue). DEBEN coincidir con la aeronave conectada o Pilot rechaza el
+        // .kmz al cargarlo. El payload imageFormat por defecto es "wide" salvo IR/zoom.
+        // Confirmado: Mavic 3T = 77/1/67 (payload_index "67-0-0" del OSD MQTT).
+        const DRONE_MODELS = [
+            // 'auto' usa el tipo REAL del dron conectado (lo más fiable). Sus enums se
+            // rellenan al detectar; por defecto cae a M3T hasta que haya detección.
+            { key: 'auto',  label: 'Auto (dron conectado)', drone: 77, droneSub: 1, payload: 67, auto: true },
+            { key: 'm3t',   label: 'Mavic 3T',          drone: 77, droneSub: 1, payload: 67 },
+            { key: 'm3e',   label: 'Mavic 3E',          drone: 77, droneSub: 0, payload: 66 },
+            { key: 'm3m',   label: 'Mavic 3M',          drone: 77, droneSub: 2, payload: 68 },
+            { key: 'm4t',   label: 'Matrice 4T',        drone: 99, droneSub: 1, payload: 89 },
+            { key: 'm4e',   label: 'Matrice 4E',        drone: 99, droneSub: 0, payload: 88 },
+            { key: 'm4td',  label: 'Matrice 4TD',       drone: 100, droneSub: 1, payload: 89 },
+            { key: 'm4d',   label: 'Matrice 4D',        drone: 100, droneSub: 0, payload: 88 },
+            { key: 'm30',   label: 'Matrice 30',        drone: 67, droneSub: 0, payload: 52 },
+            { key: 'm30t',  label: 'Matrice 30T',       drone: 67, droneSub: 0, payload: 53 },
+            { key: 'm3d',   label: 'Matrice 3D',        drone: 91, droneSub: 0, payload: 80 },
+            { key: 'm3td',  label: 'Matrice 3TD',       drone: 91, droneSub: 1, payload: 81 },
+            { key: 'm350',  label: 'Matrice 350 RTK',   drone: 89, droneSub: 0, payload: 42 },
+            { key: 'm300',  label: 'Matrice 300 RTK',   drone: 60, droneSub: 0, payload: 42 },
+        ];
+        // Modelo activo (mutable según el selector). Por defecto "auto".
+        let WPML_DRONE = DRONE_MODELS[0];
+
+        function onDroneModelChange() {
+            const sel = document.getElementById('route-drone-model');
+            const m = DRONE_MODELS.find(d => d.key === sel.value);
+            if (m) { WPML_DRONE = m; addLog(`Modelo de dron para misiones: ${m.label} (${m.drone}/${m.droneSub}/${m.payload}).`, 'system'); }
+        }
+
+        function initDroneModelSelect() {
+            const sel = document.getElementById('route-drone-model');
+            if (!sel) return;
+            sel.innerHTML = DRONE_MODELS.map(d => `<option value="${d.key}">${d.label}</option>`).join('');
+            sel.value = WPML_DRONE.key;
+        }
 
         // Añadir control de zoom en la parte inferior derecha
         L.control.zoom({
@@ -4529,9 +4576,37 @@
         function openRoutePlanner() {
             document.getElementById('route-panel').style.display = 'flex';
             if (!currentRoute) initNewRoute();
+            initDroneModelSelect();        // poblar selector de modelo de dron
+            autoSelectConnectedDroneModel(); // preseleccionar el modelo conectado si se detecta
             updateRouteDroneSelector();
             loadRouteLibrary();
             addLog('Planificador de ruta abierto.', 'system');
+        }
+
+        // Lee los enums WPML REALES del dron conectado (type/sub/payload que el propio
+        // dron reporta) y los aplica a la opción "Auto". Es la vía más fiable: funciona
+        // con cualquier modelo (M3T, M4T...) sin depender de la tabla estática.
+        async function autoSelectConnectedDroneModel() {
+            try {
+                const info = await fetch('/api/admin/drone-wpml').then(r => r.json());
+                const sel  = document.getElementById('route-drone-model');
+                const auto = DRONE_MODELS.find(d => d.key === 'auto');
+                if (info && info.detected && auto) {
+                    auto.drone    = info.drone;
+                    auto.droneSub = info.droneSub;
+                    auto.payload  = info.payload > 0 ? info.payload : auto.payload;
+                    // Etiqueta con el tipo detectado para que el operador lo vea
+                    const knownMatch = DRONE_MODELS.find(m => !m.auto && m.drone === info.drone && m.droneSub === info.droneSub);
+                    auto.label = `Auto: ${knownMatch ? knownMatch.label : 'tipo ' + info.drone + '/' + info.droneSub} (${auto.drone}/${auto.droneSub}/${auto.payload})`;
+                    if (sel) {
+                        const opt = [...sel.options].find(o => o.value === 'auto');
+                        if (opt) opt.textContent = auto.label;
+                        sel.value = 'auto';
+                    }
+                    WPML_DRONE = auto;
+                    addLog(`Dron conectado detectado: enums WPML ${auto.drone}/${auto.droneSub}/${auto.payload}.`, 'system');
+                }
+            } catch(_) { /* best-effort: queda el modelo por defecto */ }
         }
         function closeRoutePlanner() {
             document.getElementById('route-panel').style.display = 'none';
@@ -4651,6 +4726,14 @@
             if (field === 'alt') renderCurrentOnMap();
             if (field === 'headingMode') renderWaypointList(); // toggle disabled state
             updateRouteStats();
+        }
+        // Activa/desactiva la acción de sacar foto en un waypoint
+        function toggleWpPhoto(id) {
+            const wp = currentRoute?.waypoints.find(w => w.id === id);
+            if (!wp) return;
+            wp.photo = !wp.photo;
+            if (wp.photo && !wp.photoLens) wp.photoLens = 'wide';
+            renderWaypointList();
         }
 
         // ── Map rendering (ruta en edición) ──────────────────────────────────
@@ -4788,6 +4871,16 @@
                     <input class="wp-gimbal-input" type="number" value="${wp.gimbalPitch}" min="-90" max="30" step="5"
                            onchange="updateWpField(${wp.id},'gimbalPitch',this.value)" title="Inclinación gimbal (-90=nadir, 0=horizontal)" />
                     <span class="wp-ext-label">°</span>
+                    <!-- Acción de foto en este waypoint -->
+                    <button onclick="toggleWpPhoto(${wp.id})" title="Sacar foto al llegar a este waypoint"
+                        style="margin-left:4px;background:${wp.photo?'rgba(16,185,129,0.3)':'rgba(255,255,255,0.05)'};border:1px solid ${wp.photo?'var(--accent-success)':'var(--panel-border)'};color:${wp.photo?'var(--accent-success)':'var(--text-muted)'};border-radius:5px;padding:2px 6px;cursor:pointer;font-size:11px;line-height:1;">📷</button>
+                    <select class="wp-lens-select" onchange="updateWpField(${wp.id},'photoLens',this.value)" title="Lente para la foto"
+                        ${wp.photo?'':'disabled'} style="background:rgba(10,11,16,0.8);border:1px solid var(--panel-border);border-radius:5px;color:var(--text-main);font-size:10px;padding:2px;">
+                        <option value="wide"${(wp.photoLens||'wide')==='wide'?' selected':''}>Wide</option>
+                        <option value="zoom"${wp.photoLens==='zoom'?' selected':''}>Zoom</option>
+                        <option value="ir"${wp.photoLens==='ir'?' selected':''}>IR</option>
+                        <option value="wide,ir"${wp.photoLens==='wide,ir'?' selected':''}>Wide+IR</option>
+                    </select>
                   </div>
                 </div>`;
             }).join('');
@@ -4931,53 +5024,78 @@
             addLog(`JSON exportado (${wps.length} wps).`, 'system');
         }
 
+        // Genera el actionGroup WPML de un waypoint (gimbal + hover + foto).
+        // COMPARTIDO por template.kml y waylines.wpml: las acciones DEBEN estar en
+        // ambos o el dron no las ejecuta. actionId secuencial desde 0 por grupo.
+        function buildActionGroupXml(wp, i) {
+            let actionXml = '';
+            let actionId  = 0;
+
+            // 1) Gimbal: orientar la cámara al ángulo del waypoint
+            if (wp.gimbalPitch !== undefined && wp.gimbalPitch !== null) {
+                actionXml += `
+          <wpml:action>
+            <wpml:actionId>${actionId++}</wpml:actionId>
+            <wpml:actionActuatorFunc>gimbalRotate</wpml:actionActuatorFunc>
+            <wpml:actionActuatorFuncParam>
+              <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
+              <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
+              <wpml:gimbalPitchRotateAngle>${wp.gimbalPitch}</wpml:gimbalPitchRotateAngle>
+              <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
+              <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
+              <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
+              <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
+              <wpml:gimbalRotateTimeEnable>0</wpml:gimbalRotateTimeEnable>
+              <wpml:gimbalRotateTime>0</wpml:gimbalRotateTime>
+              <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+            </wpml:actionActuatorFuncParam>
+          </wpml:action>`;
+            }
+
+            // 2) Hover: esperar en el waypoint
+            if (wp.hover > 0) {
+                actionXml += `
+          <wpml:action>
+            <wpml:actionId>${actionId++}</wpml:actionId>
+            <wpml:actionActuatorFunc>hover</wpml:actionActuatorFunc>
+            <wpml:actionActuatorFuncParam><wpml:hoverTime>${wp.hover}</wpml:hoverTime></wpml:actionActuatorFuncParam>
+          </wpml:action>`;
+            }
+
+            // 3) Foto: sacar foto con la lente elegida (wide/zoom/ir)
+            if (wp.photo) {
+                const lens = wp.photoLens || 'wide';
+                actionXml += `
+          <wpml:action>
+            <wpml:actionId>${actionId++}</wpml:actionId>
+            <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
+            <wpml:actionActuatorFuncParam>
+              <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+              <wpml:fileSuffix>wp${i}</wpml:fileSuffix>
+              <wpml:payloadLensIndex>${lens}</wpml:payloadLensIndex>
+              <wpml:useGlobalPayloadLensIndex>0</wpml:useGlobalPayloadLensIndex>
+            </wpml:actionActuatorFuncParam>
+          </wpml:action>`;
+            }
+
+            if (!actionXml) return '';
+            return `
+        <wpml:actionGroup>
+          <wpml:actionGroupId>${i}</wpml:actionGroupId>
+          <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
+          <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
+          <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
+          <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>${actionXml}
+        </wpml:actionGroup>`;
+        }
+
         function buildTemplateKml(route) {
             const { mission, waypoints: wps } = route;
             const ts   = Date.now();
             const globalSpeed = wps[0]?.speed ?? 10;
             const placemarks = wps.map((wp, i) => {
                 const isManual  = wp.headingMode === 'manually';
-                const actionIds = [];
-                let actionXml   = '';
-                let actionId    = 0;
-
-                // Hover action
-                if (wp.hover > 0) {
-                    actionXml += `
-          <wpml:action>
-            <wpml:actionId>${actionId++}</wpml:actionId>
-            <wpml:actionActuatorFunc>hover</wpml:actionActuatorFunc>
-            <wpml:actionActuatorFuncParam><wpml:hoverTime>${wp.hover}</wpml:hoverTime></wpml:actionActuatorFuncParam>
-          </wpml:action>`;
-                    actionIds.push(actionId - 1);
-                }
-
-                // Gimbal action
-                if (wp.gimbalPitch !== undefined) {
-                    actionXml += `
-          <wpml:action>
-            <wpml:actionId>${actionId++}</wpml:actionId>
-            <wpml:actionActuatorFunc>gimbalEvenlyRotate</wpml:actionActuatorFunc>
-            <wpml:actionActuatorFuncParam>
-              <wpml:gimbalPitchRotateAngle>${wp.gimbalPitch}</wpml:gimbalPitchRotateAngle>
-              <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
-              <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
-              <wpml:duration>0</wpml:duration>
-              <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-            </wpml:actionActuatorFuncParam>
-          </wpml:action>`;
-                    actionIds.push(actionId - 1);
-                }
-
-                const actionGroupXml = actionId > 0 ? `
-        <wpml:actionGroup>
-          <wpml:actionGroupId>${i}</wpml:actionGroupId>
-          <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
-          <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
-          <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
-          <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
-          ${actionXml}
-        </wpml:actionGroup>` : '';
+                const actionGroupXml = buildActionGroupXml(wp, i);
 
                 return `
       <Placemark>
@@ -5012,8 +5130,16 @@
       <wpml:finishAction>${mission.finishAction}</wpml:finishAction>
       <wpml:exitOnRCLost>goContinue</wpml:exitOnRCLost>
       <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+      <wpml:takeOffSecurityHeight>20</wpml:takeOffSecurityHeight>
       <wpml:globalTransitionalSpeed>${globalSpeed}</wpml:globalTransitionalSpeed>
-      <wpml:droneInfo><wpml:droneEnumValue>67</wpml:droneEnumValue><wpml:droneSubEnumValue>0</wpml:droneSubEnumValue></wpml:droneInfo>
+      <wpml:droneInfo>
+        <wpml:droneEnumValue>${WPML_DRONE.drone}</wpml:droneEnumValue>
+        <wpml:droneSubEnumValue>${WPML_DRONE.droneSub}</wpml:droneSubEnumValue>
+      </wpml:droneInfo>
+      <wpml:payloadInfo>
+        <wpml:payloadEnumValue>${WPML_DRONE.payload}</wpml:payloadEnumValue>
+        <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+      </wpml:payloadInfo>
     </wpml:missionConfig>
     <Folder>
       <wpml:templateType>waypoint</wpml:templateType>
@@ -5023,7 +5149,20 @@
         <wpml:heightMode>${mission.heightMode}</wpml:heightMode>
         <wpml:positioningType>GPS</wpml:positioningType>
       </wpml:waylineCoordinateSysParam>
+      <wpml:payloadParam>
+        <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+        <wpml:imageFormat>wide</wpml:imageFormat>
+      </wpml:payloadParam>
       <wpml:autoFlightSpeed>${globalSpeed}</wpml:autoFlightSpeed>
+      <wpml:gimbalPitchMode>usePointSetting</wpml:gimbalPitchMode>
+      <wpml:globalHeight>${wps[0]?.alt ?? 50}</wpml:globalHeight>
+      <wpml:globalWaypointHeadingParam>
+        <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
+        <wpml:waypointHeadingAngle>0</wpml:waypointHeadingAngle>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:globalWaypointHeadingParam>
+      <wpml:globalWaypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:globalWaypointTurnMode>
+      <wpml:globalUseStraightLine>1</wpml:globalUseStraightLine>
       ${placemarks}
     </Folder>
   </Document>
@@ -5041,19 +5180,32 @@
         <wpml:waypointSpeed>${wp.speed ?? globalSpeed}</wpml:waypointSpeed>
         <wpml:waypointHeadingParam><wpml:waypointHeadingMode>${wp.headingMode ?? 'followWayline'}</wpml:waypointHeadingMode></wpml:waypointHeadingParam>
         <wpml:waypointTurnParam><wpml:waypointTurnMode>toPointAndStopWithDiscontinuityCurvature</wpml:waypointTurnMode><wpml:waypointTurnDampingDist>0</wpml:waypointTurnDampingDist></wpml:waypointTurnParam>
-        <wpml:useStraightLine>1</wpml:useStraightLine>
+        <wpml:useStraightLine>1</wpml:useStraightLine>${buildActionGroupXml(wp, i)}
       </Placemark>`).join('\n');
 
             return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.6">
   <Document>
+    <wpml:missionConfig>
+      <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+      <wpml:finishAction>${mission.finishAction}</wpml:finishAction>
+      <wpml:exitOnRCLost>goContinue</wpml:exitOnRCLost>
+      <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+      <wpml:takeOffSecurityHeight>20</wpml:takeOffSecurityHeight>
+      <wpml:globalTransitionalSpeed>${globalSpeed}</wpml:globalTransitionalSpeed>
+      <wpml:droneInfo>
+        <wpml:droneEnumValue>${WPML_DRONE.drone}</wpml:droneEnumValue>
+        <wpml:droneSubEnumValue>${WPML_DRONE.droneSub}</wpml:droneSubEnumValue>
+      </wpml:droneInfo>
+      <wpml:payloadInfo>
+        <wpml:payloadEnumValue>${WPML_DRONE.payload}</wpml:payloadEnumValue>
+        <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+      </wpml:payloadInfo>
+    </wpml:missionConfig>
     <Folder>
       <wpml:templateId>0</wpml:templateId>
       <wpml:executeHeightMode>${mission.heightMode}</wpml:executeHeightMode>
-      <wpml:waylineCoordinateSysParam>
-        <wpml:coordinateMode>WGS84</wpml:coordinateMode>
-        <wpml:heightMode>${mission.heightMode}</wpml:heightMode>
-      </wpml:waylineCoordinateSysParam>
+      <wpml:waylineId>0</wpml:waylineId>
       <wpml:autoFlightSpeed>${globalSpeed}</wpml:autoFlightSpeed>
       ${pts}
     </Folder>
@@ -5105,34 +5257,59 @@
 
         async function sendRouteToDrone() {
             if (!currentRoute || currentRoute.waypoints.length < 2) { addLog('≥2 waypoints necesarios.', 'system'); return; }
-            const sn       = document.getElementById('route-drone-select').value;
-            if (!sn) { addLog('Selecciona un dron destino.', 'system'); return; }
             buildRouteFromEditor();
             const statusEl = document.getElementById('route-send-status');
             try {
-                const data = await _sendKmzToDrone(currentRoute, sn, statusEl);
-                statusEl.textContent = `✓ Enviado (${data.bid?.slice(0,8)}...)`;
+                // 1) PUBLICAR en la biblioteca de waylines → el mando la lista y la vuela.
+                //    Es la vía correcta para RC+dron en vuelo manual (la del Dock/MQTT
+                //    flighttask solo aplica a docks). El .kmz se genera en el cliente.
+                statusEl.textContent = '⟳ Publicando en biblioteca...'; statusEl.style.color = 'var(--accent-indigo)';
+                await publishRouteToLibrary(currentRoute);
+
+                statusEl.textContent = '✓ En biblioteca del mando';
                 statusEl.style.color = 'var(--accent-success)';
-                addLog(`Misión "${currentRoute.name}" → dron ${sn} por MQTT. FlightID: ${data.flightId}`, 'system');
+                addLog(`Misión "${currentRoute.name}" publicada. IMPORTANTE: reconecta el mando al servidor (o refresca su biblioteca) para que aparezca — el firmware solo descarga la biblioteca al conectar.`, 'system');
+
+                // 2) Opcional: si hay un dron seleccionado, además dispara flighttask MQTT (docks)
+                const sn = document.getElementById('route-drone-select').value;
+                if (sn) {
+                    try { await _sendKmzToDrone(currentRoute, sn, { textContent:'', style:{} });
+                        addLog(`(También enviada por MQTT flighttask al dron ${sn}.)`, 'system'); } catch(_) {}
+                }
             } catch(e) {
                 statusEl.textContent = `✗ ${e.message}`; statusEl.style.color = 'var(--accent-danger)';
                 addLog(`Error al enviar: ${e.message}`, 'system');
             }
         }
 
+        // Publica una ruta (con waypoints) en la BIBLIOTECA DE WAYLINES del mando.
+        // Reutilizable: lo usan tanto "Enviar" (ruta en edición) como la biblioteca local.
+        async function publishRouteToLibrary(route) {
+            if (!route || !route.waypoints || route.waypoints.length < 2)
+                throw new Error('≥2 waypoints necesarios.');
+            const blob = await buildKmzBlob(route);
+            const wp0  = route.waypoints[0];
+            const fd   = new FormData();
+            fd.append('file', blob, `${route.name.replace(/\s+/g,'_')}.kmz`);
+            fd.append('name', route.name);
+            fd.append('start_lat', wp0.lat);
+            fd.append('start_lng', wp0.lon);
+            fd.append('drone_model_key', `0-${WPML_DRONE.drone}-${WPML_DRONE.droneSub}`);
+            fd.append('payload_model_key', `1-${WPML_DRONE.payload}-0`);
+            const res  = await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/waylines/publish`, { method: 'POST', body: fd });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || 'Error al publicar.');
+            return data;
+        }
+
+        // Envía una ruta de la BIBLIOTECA LOCAL a la biblioteca de waylines del mando.
         async function sendLibRoute(id) {
-            const sns = Object.keys(droneMarkers);
-            if (!sns.length) { addLog('Sin posición GPS disponible — el dron está conectado pero aún no tiene fix GNSS. Espera a que adquiera satélites.', 'system'); return; }
-            const sn  = sns.length === 1 ? sns[0] : prompt('SN del dron destino:\n' + sns.join(', '));
-            if (!sn) return;
-            const res   = await fetch(`/api/routes/${id}`);
-            const route = await res.json();
-            const fakeEl = { textContent: '', style: {} };
             try {
-                const data = await _sendKmzToDrone(route, sn, fakeEl);
-                addLog(`Ruta "${route.name}" → dron ${sn} por MQTT.`, 'system');
+                const route = await fetch(`/api/routes/${id}`).then(r => r.json());
+                await publishRouteToLibrary(route);
+                addLog(`Ruta "${route.name}" publicada en la biblioteca del mando. Reconecta el mando o refresca su biblioteca para verla.`, 'system');
             } catch(e) {
-                addLog(`Error al enviar ruta de biblioteca: ${e.message}`, 'system');
+                addLog(`Error al publicar ruta de biblioteca: ${e.message}`, 'system');
             }
         }
 

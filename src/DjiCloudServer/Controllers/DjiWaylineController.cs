@@ -1,3 +1,4 @@
+using DjiCloudServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -28,6 +29,67 @@ public class DjiWaylineController : ControllerBase
 
     private string WaylinesDir   => Path.Combine(_env.WebRootPath, "waylines");
     private string IndexFilePath => Path.Combine(WaylinesDir, "waylines_index.json");
+
+    // ── POST /api/web-map/workspaces/{wid}/waylines/publish ─────────────────────
+    // Publica en la BIBLIOTECA DE WAYLINES un .kmz generado por el planificador de
+    // map.html (multipart: file=.kmz, name, start_lat, start_lng). Así el mando lo
+    // ve en su lista de misiones (GET .../waylines) y puede descargarlo y volarlo.
+    // (El .kmz lo genera el cliente; aquí solo se guarda y se registra en el índice.)
+    [HttpPost("api/web-map/workspaces/{workspaceId}/waylines/publish")]
+    [DisableRequestSizeLimit]
+    public async Task<IActionResult> PublishWayline(
+        string workspaceId,
+        IFormFile file,
+        [FromForm] string? name,
+        [FromForm] double? start_lat,
+        [FromForm] double? start_lng,
+        [FromForm] string? drone_model_key,
+        [FromForm] string? payload_model_key)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new { success = false, error = "Falta el fichero .kmz." });
+
+        var id       = Guid.NewGuid().ToString();
+        var fileName = $"{id}.kmz";
+        Directory.CreateDirectory(WaylinesDir);
+        await using (var fs = System.IO.File.Create(Path.Combine(WaylinesDir, fileName)))
+            await file.CopyToAsync(fs);
+
+        var entry = new JObject
+        {
+            ["id"]                 = id,
+            ["name"]               = string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(file.FileName) : name,
+            ["file_name"]          = fileName,
+            ["object_key"]         = fileName,
+            ["drone_model_key"]    = drone_model_key ?? "0-77-1",   // M3T por defecto
+            ["payload_model_keys"] = new JArray(payload_model_key ?? "1-67-0"),
+            ["template_types"]     = new JArray(0),
+            ["action_type"]        = 0,
+            ["favorited"]          = false,
+            ["user_name"]          = "Web",
+            ["sign"]               = "",
+            ["size"]               = file.Length,
+            ["update_time"]        = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        };
+        if (start_lat.HasValue && start_lng.HasValue)
+            entry["start_wayline_point"] = new JObject
+            {
+                ["start_latitude"]  = start_lat.Value,
+                ["start_lontitude"] = start_lng.Value   // (typo del spec DJI: "lontitude")
+            };
+
+        lock (_indexLock)
+        {
+            var index = LoadIndex();
+            index.Add(entry);
+            SaveIndex(index);
+        }
+
+        _logger.LogInformation("[Wayline] Misión publicada en biblioteca desde web: '{Name}' ({Bytes} bytes) — el mando la verá al refrescar.",
+            entry["name"], file.Length);
+
+        return Ok(new { success = true, id, name = entry["name"]?.ToString(), size = file.Length });
+    }
 
     // ── GET /wayline/api/v1/workspaces/{wid}/waylines (doc 44) ──────────────────
     // Lista paginada de waylines. Pilot 2 la pide al abrir la biblioteca de misiones.
@@ -73,19 +135,25 @@ public class DjiWaylineController : ControllerBase
     }
 
     // ── GET /wayline/api/v1/workspaces/{wid}/waylines/{id}/url (doc 46) ─────────
-    // URL de descarga del .kmz — Pilot 2 la usa para bajar la misión antes de volar.
+    // Descarga del .kmz. CRÍTICO: la demo Java NO devuelve JSON — hace un REDIRECT 302
+    // a la dirección del fichero (rsp.sendRedirect). Pilot 2 sigue el redirect y descarga
+    // el .kmz directamente. Si devolvemos JSON, Pilot no encuentra el fichero y muestra
+    // "archivo de ruta eliminado". Por eso aquí devolvemos Redirect, no Ok(json).
     [HttpGet("wayline/api/v1/workspaces/{workspaceId}/waylines/{waylineId}/url")]
     public IActionResult GetWaylineUrl(string workspaceId, string waylineId)
     {
         var entry = LoadIndex().FirstOrDefault(w => w["id"]?.ToString() == waylineId);
         if (entry == null)
-            return Ok(new { code = -1, message = "wayline not found", data = new { } });
+            return NotFound(new { code = -1, message = "wayline not found" });
 
         var fileName = entry["file_name"]?.ToString() ?? $"{waylineId}.kmz";
-        var url = $"{Request.Scheme}://{Request.Host}/waylines/{fileName}";
+        var filePath = Path.Combine(WaylinesDir, fileName);
+        if (!System.IO.File.Exists(filePath))
+            return NotFound(new { code = -1, message = "wayline file missing" });
 
-        _logger.LogInformation("[Wayline] URL de descarga solicitada id={Id} → {Url}", waylineId, url);
-        return Ok(new { code = 0, message = "success", data = url });
+        var url = $"{Request.Scheme}://{Request.Host}/waylines/{fileName}";
+        _logger.LogInformation("[Wayline] Descarga id={Id} → redirect 302 a {Url}", waylineId, url);
+        return Redirect(url);   // 302 → Pilot sigue el redirect y baja el .kmz
     }
 
     // ── GET /wayline/api/v1/workspaces/{wid}/waylines/duplicate-names (doc 47) ──
@@ -207,22 +275,19 @@ public class DjiWaylineController : ControllerBase
 
     private List<JObject> LoadIndex()
     {
-        try
-        {
-            if (!System.IO.File.Exists(IndexFilePath)) return new List<JObject>();
-            var json = System.IO.File.ReadAllText(IndexFilePath);
-            return JsonConvert.DeserializeObject<List<JObject>>(json) ?? new List<JObject>();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[Wayline] Error leyendo el índice — usando lista vacía");
-            return new List<JObject>();
-        }
+        // #2.7: lectura con recuperación desde .bak si el índice está corrupto
+        return Services.AtomicJsonFile.ReadWithRecovery(
+            IndexFilePath,
+            json => JsonConvert.DeserializeObject<List<JObject>>(json),
+            recoveredFrom => _logger.LogWarning(
+                "[Wayline] Índice corrupto — recuperado desde {Backup}", recoveredFrom))
+            ?? new List<JObject>();
     }
 
     private void SaveIndex(List<JObject> index)
     {
         Directory.CreateDirectory(WaylinesDir);
-        System.IO.File.WriteAllText(IndexFilePath, JsonConvert.SerializeObject(index, Formatting.Indented));
+        // #2.7: escritura atómica con backup
+        Services.AtomicJsonFile.Write(IndexFilePath, JsonConvert.SerializeObject(index, Formatting.Indented));
     }
 }

@@ -64,6 +64,37 @@ public class AdminController : ControllerBase
         return cap is null ? NotFound(new { error = "Sin datos de live_capacity aún" }) : Ok(cap);
     }
 
+    /// <summary>
+    /// Enums WPML del dron conectado, leídos del propio dispositivo (no de una tabla).
+    /// El droneEnumValue de WPML ES el mismo "type" que el dron reporta en update_topo,
+    /// y el payload es el "type" del camera_index del live_capacity ("67-0-0" → 67).
+    /// Esto evita adivinar valores: sirve para CUALQUIER modelo (M3T, M4T, etc.).
+    /// </summary>
+    [HttpGet("drone-wpml")]
+    public IActionResult GetDroneWpml()
+    {
+        // Buscar la primera aeronave (no gateway/mando) online con type conocido
+        var aircraft = _adminDataService.GetDevices()
+            .Select(d => d.Sn)
+            .Where(sn => !_adminDataService.IsGateway(sn) && _adminDataService.GetDeviceTypeCode(sn) > 0)
+            .FirstOrDefault();
+
+        if (aircraft == null)
+            return Ok(new { detected = false });
+
+        var drone    = _adminDataService.GetDeviceTypeCode(aircraft);
+        var droneSub = _adminDataService.GetDeviceSubtypeCode(aircraft);
+
+        // payload: type del primer camera_index del live_capacity ("67-0-0" → 67)
+        int payload = 0;
+        var gw  = _adminDataService.GetGatewayForAircraft(aircraft);
+        var cap = _adminDataService.GetLiveCapacity(gw ?? aircraft) ?? _adminDataService.GetLiveCapacity(aircraft);
+        var camIdx = cap?.DeviceList?.SelectMany(d => d.CameraList ?? new()).FirstOrDefault()?.CameraIndex;
+        if (!string.IsNullOrEmpty(camIdx) && int.TryParse(camIdx.Split('-')[0], out var p)) payload = p;
+
+        return Ok(new { detected = true, sn = aircraft, drone, droneSub, payload });
+    }
+
     /// <summary>Códigos HMS (Health Management System) activos del dron.</summary>
     [HttpGet("hms/{sn}")]
     public IActionResult GetHms(string sn)

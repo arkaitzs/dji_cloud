@@ -86,6 +86,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<IMapDataService, MapDataService>();
 builder.Services.AddSingleton<IDjiWebSocketManager, DjiWebSocketManager>();
 builder.Services.AddSingleton<IMapSyncNotifier, MapSyncNotifier>();
+builder.Services.AddSingleton<IEventLogService, EventLogService>();   // #2.8: logs con buffers por categoría
 builder.Services.AddSingleton<IAdminDataService, AdminDataService>();
 builder.Services.AddSingleton<ITrajectoryStore, TrajectoryStore>();
 builder.Services.AddSingleton<IMqttService, MqttService>();
@@ -197,7 +198,7 @@ app.UseMqttServer(server => {
         {
             var connTypeCode = adminData.GetDeviceTypeCode(clientIdStr);
             var connSubType  = adminData.GetDeviceSubtypeCode(clientIdStr);
-            var connDomain   = connTypeCode == 144 ? 2 : 0;
+            var connDomain   = adminData.IsGateway(clientIdStr) ? 2 : 0;  // dominio 2 = RC/gateway
             var tsaNotifier  = app.Services.GetRequiredService<IMapSyncNotifier>();
             _ = tsaNotifier.NotifyDeviceOnlineAsync(new
             {
@@ -568,7 +569,8 @@ app.UseMqttServer(server => {
                             {
                                 try
                                 {
-                                    await Task.Delay(800);
+                                    // #2.9: cancelable en el shutdown de la aplicación
+                                    await Task.Delay(800, app.Lifetime.ApplicationStopping);
                                     var mqttDrc = app.Services.GetRequiredService<IMqttService>();
                                     var subPayload = JsonSerializer.Serialize(new
                                     {
@@ -584,6 +586,10 @@ app.UseMqttServer(server => {
                                             $"drc_initial_state_subscribe → {gatewaySn}");
                                     app.Logger.LogInformation(
                                         "[DRC] drc_initial_state_subscribe enviado → {GatewaySn}", gatewaySn);
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    // Apagado de la aplicación durante el delay — no es un error
                                 }
                                 catch (Exception exDrc)
                                 {
@@ -666,11 +672,13 @@ app.UseMqttServer(server => {
 
                 // Auto-solicitud de live_capacity si está vacía o no tiene cámaras
                 var gatewaySnForCap = sn;
-                var devTypeForCap = adminData.GetDeviceTypeCode(sn);
-                if (devTypeForCap != 144) // Si es aeronave, buscar su RC/Gateway
+                if (!adminData.IsGateway(sn)) // Si es aeronave, buscar su RC/Gateway
                 {
-                    gatewaySnForCap = adminData.GetAircraftForGateway(sn) ?? 
-                                      adminData.GetGateways().FirstOrDefault(g => g.AircraftSn == sn)?.GatewaySn ?? 
+                    // #3.6: mapeo correcto aeronave→gateway (antes se usaba
+                    // GetAircraftForGateway, el sentido inverso, y solo funcionaba
+                    // por el fallback de búsqueda en GetGateways)
+                    gatewaySnForCap = adminData.GetGatewayForAircraft(sn) ??
+                                      adminData.GetGateways().FirstOrDefault(g => g.AircraftSn == sn)?.GatewaySn ??
                                       sn;
                 }
 
@@ -685,10 +693,12 @@ app.UseMqttServer(server => {
                         if (nowMs - lastRequest > 15000) // 15s cooldown
                         {
                             lastCapacityRequestTimes[gatewaySnForCap] = nowMs;
+                            // #2.9: cancelable en shutdown — el Task.Run no queda huérfano
                             _ = Task.Run(async () =>
                             {
                                 try
                                 {
+                                    if (app.Lifetime.ApplicationStopping.IsCancellationRequested) return;
                                     var options = app.Services.GetRequiredService<IOptions<DjiCloudOptions>>().Value;
                                     var serverClientId = options.Mqtt?.ClientId ?? "DjiCloudServer";
                                     var mqttSvc = app.Services.GetRequiredService<IMqttService>();
@@ -736,7 +746,10 @@ app.UseMqttServer(server => {
                         var tid = root.TryGetProperty("tid", out var tidEl) ? tidEl.GetString() ?? "" : "";
                         var bid = root.TryGetProperty("bid", out var bidEl) ? bidEl.GetString() ?? "" : "";
 
-                        // Guardar tipo de dispositivo (144 = Mando RC, resto = aeronave) y emparejamientos
+                        // El emisor de update_topo (sys/product/{gateway_sn}/status) ES el gateway/mando,
+                        // sea cual sea su type code (144=RC Pro, 174=RC nuevo, etc.). Lo marcamos
+                        // explícitamente para no depender de un número de tipo hardcodeado.
+                        adminData.MarkGateway(sn);
                         if (root.TryGetProperty("data", out var topoData))
                         {
                             if (topoData.TryGetProperty("type", out var typeEl) &&
@@ -746,9 +759,9 @@ app.UseMqttServer(server => {
                                 adminData.SetDeviceTypeCode(sn, gwTypeCode);
                                 var gwSubType = topoData.TryGetProperty("sub_type", out var gwStEl) && gwStEl.ValueKind == JsonValueKind.Number
                                     ? gwStEl.GetInt32() : 0;
-                                // INFO siempre visible: crucial para identificar el type_code del M4T
-                                app.Logger.LogInformation("[TOPO] Gateway SN={Sn} type={Type} sub_type={SubType} ({Role})",
-                                    sn, gwTypeCode, gwSubType, gwTypeCode == 144 ? "RC Pro Enterprise" : $"Dispositivo tipo {gwTypeCode}");
+                                // INFO siempre visible: identifica el type_code del mando (144/174/...)
+                                app.Logger.LogInformation("[TOPO] Gateway SN={Sn} type={Type} sub_type={SubType} (mando)",
+                                    sn, gwTypeCode, gwSubType);
                                 adminData.AddLog("INFO", "Topología", $"Gateway {sn}: type={gwTypeCode} sub_type={gwSubType}");
                             }
                             if (topoData.TryGetProperty("sub_type", out var subTypeEl) &&
@@ -933,14 +946,14 @@ app.UseMqttServer(server => {
                             }
                         }
 
-                        // Tipo de dispositivo: 144=Mando RC, -1=desconocido, resto=aeronave
-                        int devType = adminData.GetDeviceTypeCode(sn);
+                        // Gateway/mando vs aeronave (independiente del type code)
+                        bool isGatewaySn = adminData.IsGateway(sn);
 
                         // Si es el RC y hay una aeronave pareada, usamos el SN de la aeronave
                         // para que el estado aparezca bajo el SN correcto en el mapa
                         string effectiveSn = sn;
                         var pairedAircraft = adminData.GetAircraftForGateway(sn);
-                        if (devType == 144 && pairedAircraft is not null)
+                        if (isGatewaySn && pairedAircraft is not null)
                             effectiveSn = pairedAircraft;
 
                         // ── Corrección de GPS fix para cualquier dispositivo ─────────────────────
@@ -961,14 +974,14 @@ app.UseMqttServer(server => {
                         // Enviar estado al mapa aunque no haya GPS (batería, modo, satélites).
                         // sendDevType=-2 identifica relay de RC → permite al frontend suprimir
                         // re-renders cuando ya existen datos frescos directos de la aeronave.
-                        int sendDevType = (effectiveSn != sn) ? -2 : devType;
+                        int sendDevType = (effectiveSn != sn) ? -2 : (isGatewaySn ? 144 : adminData.GetDeviceTypeCode(sn));
                         var hubContextStatus = app.Services.GetRequiredService<IHubContext<TelemetryHub>>();
                         await hubContextStatus.Clients.All.SendAsync("UpdateDroneStatus",
                             effectiveSn, batteryPercent, remainFlightTime, modeCode,
                             gpsFixed, gpsCountStatus, attitudeHead, horizontalSpeed, sendDevType);
 
                         // Refrescar LastSeen y batería del RC/gateway (no manda lat/lon propio)
-                        if (devType == 144)
+                        if (isGatewaySn)
                             adminData.RefreshDeviceStatus(sn, batteryPercent, modeCode);
 
                         // ── POSICIÓN — solo cuando hay fix GPS válido ─────────────────────────
@@ -1152,9 +1165,8 @@ app.UseMqttServer(server => {
                                 }
                             }
 
-                            // Determinar si el SN del topic es un gateway/RC (devType=144)
-                            int posDevType = adminData.GetDeviceTypeCode(sn);
-                            bool isGatewayOsd = (posDevType == 144);
+                            // Determinar si el SN del topic es un gateway/RC (independiente del type code)
+                            bool isGatewayOsd = adminData.IsGateway(sn);
 
                             var hubContext = app.Services.GetRequiredService<IHubContext<TelemetryHub>>();
 
@@ -1258,7 +1270,7 @@ app.UseMqttServer(server => {
 
 // Crear directorios estáticos necesarios en wwwroot
 var wwwroot = app.Environment.WebRootPath;
-foreach (var dir in new[] { "hls", "videos", "klv", "missions", "routes", "flights", "mqtt_logs", "media", "waylines" })
+foreach (var dir in new[] { "hls", "videos", "klv", "missions", "routes", "flights", "mqtt_logs", "media", "waylines", "pilot_logs" })
     Directory.CreateDirectory(Path.Combine(wwwroot, dir));
 
 // Detener ffmpeg limpiamente al apagar la aplicación
@@ -1309,6 +1321,8 @@ var mimeProvider = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentType
 mimeProvider.Mappings[".m3u8"] = "application/vnd.apple.mpegurl";
 mimeProvider.Mappings[".ts"]   = "video/mp2t";          // MPEG-TS (HLS segments)
 mimeProvider.Mappings[".klv"]  = "application/octet-stream";
+mimeProvider.Mappings[".kmz"]  = "application/vnd.google-earth.kmz"; // misiones WPML
+mimeProvider.Mappings[".wpml"] = "application/xml";
 
 // Middleware para registrar las solicitudes HTTP a la API (DJI Cloud API)
 app.Use(async (context, next) =>
@@ -1436,12 +1450,17 @@ app.Use(async (context, next) =>
             //   estado de error, cerrando el WS.
             _ = Task.Run(async () =>
             {
-                await Task.Delay(800);
                 try
                 {
+                    // #2.9: cancelable en el shutdown de la aplicación
+                    await Task.Delay(800, app.Lifetime.ApplicationStopping);
                     var mapNotifier = context.RequestServices.GetRequiredService<IMapSyncNotifier>();
                     await mapNotifier.NotifyGroupRefreshAsync(new[] { "00000000-0000-0000-0000-000000000000" });
                     app.Logger.LogInformation("[WebSocket] map_group_refresh (App Shared) enviado al reconectar mando.");
+                }
+                catch (OperationCanceledException)
+                {
+                    // Apagado durante el delay — no es un error
                 }
                 catch (Exception ex)
                 {
@@ -1473,13 +1492,23 @@ app.Use(async (context, next) =>
                     if (ms.Length == 0) continue;
                     var msg = System.Text.Encoding.UTF8.GetString(ms.ToArray());
 
-                    // ── Heartbeat "ping" ───────────────────────────────────────────────────
-                    // DJI Pilot 2 envía "ping" (texto plano) cada ~3s. La demo Java oficial
-                    // NO responde (WebSocketDefaultHandler solo lo loguea) — alineado con ella,
-                    // lo ignoramos en silencio. El keep-alive a nivel de protocolo WS lo
-                    // gestiona ASP.NET Core (KeepAliveInterval en UseWebSockets).
+                    // ── Heartbeat "ping" → "pong" ──────────────────────────────────────────
+                    // DJI Pilot 2 envía "ping" (texto plano) cada ~3s como health-check del
+                    // canal. La demo Java NO responde, pero FlightHub (donde la sincronización
+                    // en tiempo real SÍ funciona) no es la demo: si Pilot no recibe pong puede
+                    // marcar el canal como degradado y suprimir el envío en vivo de elementos.
+                    // NOTA: todas las pruebas previas de creación en vivo se hicieron sin pong
+                    // activo — esta respuesta está bajo prueba como habilitador del RT-sync.
                     if (msg == "ping")
+                    {
+                        var pongBytes = System.Text.Encoding.UTF8.GetBytes("pong");
+                        await webSocket.SendAsync(
+                            new ArraySegment<byte>(pongBytes),
+                            System.Net.WebSockets.WebSocketMessageType.Text,
+                            endOfMessage: true,
+                            CancellationToken.None);
                         continue;
+                    }
 
                     // ── Parsear mensajes JSON entrantes del mando ──────────────────────────
                     // DJI Pilot 2 puede enviar eventos de mapa via WS en lugar de REST cuando

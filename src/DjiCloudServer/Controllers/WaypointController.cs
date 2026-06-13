@@ -1,3 +1,4 @@
+using DjiCloudServer.Services;
 using Microsoft.AspNetCore.Mvc;
 using MQTTnet;
 using MQTTnet.Server;
@@ -9,7 +10,10 @@ namespace DjiCloudServer.Controllers;
 
 [ApiController]
 [Route("api/waypoints")]
-public class WaypointController(IWebHostEnvironment env, MqttServer mqttServer) : ControllerBase
+public class WaypointController(
+    IWebHostEnvironment env,
+    MqttServer mqttServer,
+    IAdminDataService adminData) : ControllerBase
 {
     // ─── Guardar KMZ en disco y devolver URL accesible ───────────────────────
 
@@ -83,7 +87,15 @@ public class WaypointController(IWebHostEnvironment env, MqttServer mqttServer) 
         };
 
         var json    = JsonSerializer.Serialize(payload);
-        var topic   = $"thing/product/{sn}/services";
+
+        // #3.1: services es un tópico de GATEWAY (doc 27). Si el cliente pasó el SN
+        // de la aeronave, resolver su mando/gateway pareado — un comando publicado
+        // bajo el SN de la aeronave no lo escucha nadie.
+        var gatewaySn = sn;
+        if (!adminData.IsGateway(sn)) // si es una aeronave, resolver su mando/gateway
+            gatewaySn = adminData.GetGatewayForAircraft(sn) ?? sn;
+
+        var topic   = $"thing/product/{gatewaySn}/services";
 
         var message = new MqttApplicationMessageBuilder()
             .WithTopic(topic)

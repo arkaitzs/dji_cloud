@@ -89,6 +89,11 @@ public interface IAdminDataService
     bool ShouldPushSignalR(string sn, int minIntervalMs = 100); // throttle para alta frecuencia
     void SetRcAircraftPairing(string rcSn, string aircraftSn);
     string? GetAircraftForGateway(string gatewaySn);
+    string? GetGatewayForAircraft(string aircraftSn);
+    /// <summary>Marca un SN como gateway/mando (el que envía la topología). Independiente del type code.</summary>
+    void MarkGateway(string sn);
+    /// <summary>True si el SN es un gateway/mando (RC/Dock), sea cual sea su type code (144, 174...).</summary>
+    bool IsGateway(string sn);
     void SetLastServicesReply(string gatewaySn, string method, int result);
     ServicesReplyDto? GetLastServicesReply(string gatewaySn);
     List<GatewayInfoDto> GetGateways();
@@ -143,7 +148,6 @@ public class ServicesReplyDto
 public class AdminDataService : IAdminDataService
 {
     private readonly DateTime _startTime = DateTime.UtcNow;
-    private readonly ConcurrentQueue<LogEventDto> _logs = new();
     private readonly ConcurrentDictionary<string, DeviceStatusDto> _devices = new();
     private readonly ConcurrentDictionary<string, int>    _deviceTypeCodes = new();
     private readonly ConcurrentDictionary<string, string> _rcToAircraft    = new();
@@ -153,16 +157,16 @@ public class AdminDataService : IAdminDataService
     private readonly ConcurrentDictionary<string, LiveCapacityDto>   _liveCapacity = new();
     private readonly ConcurrentDictionary<string, string>            _lastStatePayloads = new();
     private readonly ConcurrentDictionary<string, int>               _deviceSubtypeCodes = new();
-    private const int MaxLogs = 100;
 
     private readonly string _cacheFilePath;
     private readonly ILogger<AdminDataService> _logger;
-    private readonly IMqttFileLogger _fileLogger;
+    // #2.8: el registro de eventos vive en su propio servicio con buffers por categoría
+    private readonly IEventLogService _eventLog;
 
-    public AdminDataService(ILogger<AdminDataService> logger, IMqttFileLogger fileLogger)
+    public AdminDataService(ILogger<AdminDataService> logger, IEventLogService eventLog)
     {
         _logger = logger;
-        _fileLogger = fileLogger;
+        _eventLog = eventLog;
         var appDir = AppDomain.CurrentDomain.BaseDirectory;
         _cacheFilePath = Path.Combine(appDir, "live_capacity_cache.json");
         LoadCache();
@@ -172,10 +176,14 @@ public class AdminDataService : IAdminDataService
     {
         try
         {
-            if (File.Exists(_cacheFilePath))
+            if (File.Exists(_cacheFilePath) || File.Exists(_cacheFilePath + ".bak"))
             {
-                var json = File.ReadAllText(_cacheFilePath);
-                var state = JsonSerializer.Deserialize<PersistentStateDto>(json);
+                // #2.7: lectura con recuperación desde .bak si el principal está corrupto
+                var state = AtomicJsonFile.ReadWithRecovery(
+                    _cacheFilePath,
+                    json => JsonSerializer.Deserialize<PersistentStateDto>(json),
+                    recoveredFrom => _logger.LogWarning(
+                        "[AdminDataService] Caché corrupta — recuperada desde {Backup}", recoveredFrom));
                 if (state != null)
                 {
                     if (state.LiveCapacity != null)
@@ -186,7 +194,10 @@ public class AdminDataService : IAdminDataService
                     if (state.RcToAircraft != null)
                     {
                         foreach (var kvp in state.RcToAircraft)
+                        {
                             _rcToAircraft[kvp.Key] = kvp.Value;
+                            _gatewaySns[kvp.Key] = 0;  // las claves de pairing son gateways
+                        }
                     }
                     if (state.AircraftToRc != null)
                     {
@@ -232,7 +243,8 @@ public class AdminDataService : IAdminDataService
                 DeviceSubtypeCodes = new Dictionary<string, int>(_deviceSubtypeCodes)
             };
             var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_cacheFilePath, json);
+            // #2.7: escritura atómica con backup — sin corrupción por crash
+            AtomicJsonFile.Write(_cacheFilePath, json);
         }
         catch (Exception ex)
         {
@@ -240,29 +252,9 @@ public class AdminDataService : IAdminDataService
         }
     }
 
-    public void AddLog(string level, string source, string message)
-    {
-        _logs.Enqueue(new LogEventDto
-        {
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            Level = level,
-            Source = source,
-            Message = message
-        });
-
-        // Mantener el tamaño del buffer limitado
-        while (_logs.Count > MaxLogs)
-        {
-            _logs.TryDequeue(out _);
-        }
-
-        // Registrar en el log de archivo unificado, EXCEPTO si es de nivel MQTT (para evitar redundancia, 
-        // ya que el tráfico MQTT se registra en detalle con su propio payload y topic en Program.cs)
-        if (level != "MQTT")
-        {
-            _fileLogger.Log(source, level, payload: message);
-        }
-    }
+    // #2.8: delegación al servicio dedicado — los call-sites no cambian
+    public void AddLog(string level, string source, string message) =>
+        _eventLog.Add(level, source, message);
 
     public void RecordRequest(string method, string path, int statusCode, long elapsedMs, string ip)
     {
@@ -367,10 +359,7 @@ public class AdminDataService : IAdminDataService
         return _devices.Values.OrderByDescending(d => d.LastSeen).ToList();
     }
 
-    public List<LogEventDto> GetLogs()
-    {
-        return _logs.ToList();
-    }
+    public List<LogEventDto> GetLogs() => _eventLog.GetLogs();
 
     public void RefreshDeviceStatus(string sn, int batteryPercent, int modeCode)
     {
@@ -587,13 +576,12 @@ public class AdminDataService : IAdminDataService
         }
         else
         {
-            // Si no hay emparejamiento explícito, deducir según el código de tipo
-            var typeCodeVal = _deviceTypeCodes.GetValueOrDefault(sn, -1);
-            if (typeCodeVal == 144) // Mando
+            // Si no hay emparejamiento explícito, deducir: gateway conocido vs aeronave
+            if (IsGateway(sn))
             {
                 gatewaySn = sn;
             }
-            else if (typeCodeVal > 0) // Aeronave
+            else if (_deviceTypeCodes.GetValueOrDefault(sn, -1) > 0) // Aeronave
             {
                 aircraftSn = sn;
             }
@@ -608,7 +596,7 @@ public class AdminDataService : IAdminDataService
             var typeCode = _deviceTypeCodes.GetValueOrDefault(effAircraftSn, -1);
             var subtypeCode = _deviceSubtypeCodes.GetValueOrDefault(effAircraftSn, -1);
 
-            if (typeCode != 144) // No sintetizar para un mando sin aeronave real (o asumir como dron)
+            if (!IsGateway(effAircraftSn)) // No sintetizar capacidad para un gateway/mando
             {
                 var fallbackCap = GetDefaultLiveCapacity(effGatewaySn, effAircraftSn, typeCode, subtypeCode);
                 if (fallbackCap != null)
@@ -660,10 +648,10 @@ public class AdminDataService : IAdminDataService
     public void SetDeviceTypeCode(string sn, int typeCode)
     {
         _deviceTypeCodes[sn] = typeCode;
-        // Actualizar también el string legible en _devices para que GetDevices() lo exponga correctamente
-        var typeName = typeCode == 144 ? "Mando" : "Dron";
+        // Etiqueta legible. Un gateway/mando ya marcado NO se reclasifica como "Dron"
+        // (su type code puede ser 144, 174 u otro según el modelo de RC).
         if (_devices.TryGetValue(sn, out var dev))
-            lock (dev) { dev.DeviceType = typeName; }
+            lock (dev) { dev.DeviceType = IsGateway(sn) ? "Mando" : "Dron"; }
         SaveCache();
     }
 
@@ -679,11 +667,27 @@ public class AdminDataService : IAdminDataService
     public int GetDeviceSubtypeCode(string sn)
         => _deviceSubtypeCodes.GetValueOrDefault(sn, -1);
 
+    // Conjunto de gateways/mandos conocidos (los que envían update_topo con sub_devices).
+    // Fuente de verdad para distinguir mando de aeronave SIN depender del type code 144/174.
+    private readonly ConcurrentDictionary<string, byte> _gatewaySns = new();
+
+    public void MarkGateway(string sn)
+    {
+        if (string.IsNullOrEmpty(sn)) return;
+        _gatewaySns[sn] = 0;
+        var dev = _devices.GetOrAdd(sn, k => new DeviceStatusDto { Sn = k });
+        lock (dev) { dev.DeviceType = "Mando"; }
+    }
+
+    public bool IsGateway(string sn) => !string.IsNullOrEmpty(sn) && _gatewaySns.ContainsKey(sn);
+
     public void SetRcAircraftPairing(string rcSn, string aircraftSn)
     {
         _rcToAircraft[rcSn]       = aircraftSn;
         _aircraftToRc[aircraftSn] = rcSn;
-        
+        // El RC de un emparejamiento ES un gateway/mando (envía la topología).
+        MarkGateway(rcSn);
+
         if (_liveCapacity.TryGetValue(rcSn, out var cap))
         {
             _liveCapacity[aircraftSn] = cap;
@@ -697,6 +701,10 @@ public class AdminDataService : IAdminDataService
 
     public string? GetAircraftForGateway(string gatewaySn)
         => _rcToAircraft.TryGetValue(gatewaySn, out var sn) ? sn : null;
+
+    // #3.6: mapeo inverso aeronave→gateway (el diccionario existía pero sin accessor)
+    public string? GetGatewayForAircraft(string aircraftSn)
+        => _aircraftToRc.TryGetValue(aircraftSn, out var sn) ? sn : null;
 
     public void SetLastServicesReply(string gatewaySn, string method, int result)
     {

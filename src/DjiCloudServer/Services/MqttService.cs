@@ -203,6 +203,11 @@ public class MqttService : IMqttService, IHostedService, IAsyncDisposable
         await SubscribeAsync("sys/product/+/status");
         await SubscribeAsync("sys/product/+/network/probe_reply");
         await SubscribeAsync("thing/product/+/drc/up");
+        // #3.2: con el broker embebido el interceptor ve estos tópicos sin
+        // suscripción, pero si algún día se migra a un broker externo (EMQX),
+        // sin estas líneas el servidor dejaría de recibir requests y set_reply.
+        await SubscribeAsync("thing/product/+/requests");
+        await SubscribeAsync("thing/product/+/property/set_reply");
         _logger.LogInformation("📡 MQTT: suscripciones DJI Cloud API registradas.");
     }
 
