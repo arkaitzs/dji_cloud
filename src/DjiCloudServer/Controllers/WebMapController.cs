@@ -58,38 +58,44 @@ public class WebMapController : ControllerBase
         // → Forzar coordenadas 2D eliminando el tercer componente (altitud).
         if (resource?["content"]?["geometry"] is JObject geom)
         {
-            // radius es obligatorio en todos los elementos DJI (0.0 para Point/Line/Polygon, valor real para Circle)
-            if (!geom.ContainsKey("radius"))
-                geom["radius"] = 0.0;
-            // radius como entero 0 → float 0.0 (el RC puede rechazar el tipo incorrecto)
-            else if (geom["radius"]?.Type == JTokenType.Integer)
-                geom["radius"] = 0.0;
-
-            // FORMATO NATIVO DEL RC (verificado con POST reales de DJI Pilot 2 v17.1.5.15):
-            //   Point:  coordinates [lon, lat, 0.0] (3D) + clampToGround: true
-            //   Circle: coordinates [lon, lat] (2D)      + clampToGround: false
             var geoType = geom["type"]?.ToString();
-            if (geoType == "Point")
-            {
-                // Asegurar coords 3D (añadir altitud 0.0 si viene en 2D)
-                if (geom["coordinates"] is JArray coords && coords.Count == 2)
-                    geom["coordinates"] = new JArray(coords[0], coords[1], 0.0);
+            var props   = resource["content"]?["properties"] as JObject;
 
-                // clampToGround: true — formato nativo del mando para puntos
-                if (resource["content"]?["properties"] is JObject props
-                    && props["clampToGround"]?.Value<bool>() != true)
-                {
-                    props["clampToGround"] = true;
-                }
+            // FORMATO NATIVO DEL RC (verificado con POST reales de DJI Pilot 2 + seed oficial):
+            //   Point      (type 0): coordinates [lon, lat, 0.0] (3D) + clampToGround:true + radius 0.0
+            //   LineString (type 1): coordinates [[lon,lat],...] (2D) + clampToGround:false + radius 0.0
+            //   Polygon    (type 2): coordinates [[[lon,lat],...]] (2D) + clampToGround:false + radius 0.0
+            //   Circle     (RC ext): coordinates [lon, lat] (2D)       + clampToGround:false + radius>0
+            switch (geoType)
+            {
+                case "Point":
+                    if (geom["coordinates"] is JArray pc && pc.Count == 2)
+                        geom["coordinates"] = new JArray(pc[0], pc[1], 0.0);
+                    geom["radius"] = 0.0;
+                    if (props != null) props["clampToGround"] = true;
+                    break;
+
+                case "LineString":
+                case "Polygon":
+                    geom["radius"] = 0.0;
+                    if (props != null && props["clampToGround"] == null) props["clampToGround"] = false;
+                    break;
+
+                case "Circle":
+                    // radius real (float) para el círculo
+                    geom["radius"] = geom["radius"]?.Value<double>() ?? 0.0;
+                    if (props != null && props["clampToGround"] == null) props["clampToGround"] = false;
+                    break;
+
+                default:
+                    if (!geom.ContainsKey("radius")) geom["radius"] = 0.0;
+                    break;
             }
 
             // PALETA DJI (spec doc 40): el RC solo renderiza estos 6 colores y descarta
             // silenciosamente cualquier otro. Mapear colores fuera de paleta al más cercano.
-            if (resource["content"]?["properties"] is JObject colorProps
-                && colorProps["color"] is JToken colorTok)
-            {
-                colorProps["color"] = NormalizeToDjiPalette(colorTok.ToString());
-            }
+            if (props?["color"] is JToken colorTok)
+                props["color"] = NormalizeToDjiPalette(colorTok.ToString());
         }
 
         var webUserName = body["user_name"]?.ToString() ?? body["operator"]?.ToString() ?? "Web";
@@ -125,6 +131,22 @@ public class WebMapController : ControllerBase
     public async Task<IActionResult> UpdateElement(string workspaceId, string elementId, [FromBody] JObject body)
     {
         var patchResource = body["resource"] as JObject;
+
+        // Si el payload viene en formato oficial DJI spec (content a nivel raíz en lugar de envuelto en resource)
+        if (patchResource == null && body["content"] is JObject content)
+        {
+            patchResource = new JObject
+            {
+                ["content"] = content
+            };
+
+            var existingElement = _mapData.GetElement(elementId);
+            var existingType = existingElement?.Resource?["type"]?.Value<int>();
+            if (existingType != null)
+            {
+                patchResource["type"] = existingType;
+            }
+        }
 
         // Preservar user_name del elemento almacenado si el body no lo trae
         if (patchResource != null && string.IsNullOrEmpty(patchResource["user_name"]?.ToString()))

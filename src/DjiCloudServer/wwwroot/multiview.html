@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Vista – DJI Cloud</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root{
+    --bg:#090b10; --panel:rgba(14,17,26,0.96); --border:rgba(255,255,255,0.08);
+    --text:#e2e8f0; --muted:#64748b; --cyan:#06b6d4; --indigo:#6366f1;
+    --danger:#ef4444; --success:#22c55e;
+  }
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;}
+  #bar{display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--border);}
+  #bar h1{font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--cyan);}
+  .lay-btn{background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.35);color:var(--indigo);
+    border-radius:6px;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;font-family:'Rajdhani',sans-serif;}
+  .lay-btn.active{background:rgba(6,182,212,0.25);border-color:var(--cyan);color:var(--cyan);}
+  #note{margin-left:auto;font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;max-width:420px;text-align:right;}
+  #grid{display:grid;gap:6px;padding:6px;height:calc(100vh - 45px);}
+  .cell{position:relative;background:#000;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-height:0;}
+  .cell-bar{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--panel);border-bottom:1px solid var(--border);}
+  .cell-bar select{flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text);
+    border-radius:5px;padding:3px 6px;font-size:11px;font-family:'JetBrains Mono',monospace;outline:none;}
+  .cell-bar button{background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#4ade80;
+    border-radius:5px;padding:3px 9px;font-size:10px;font-weight:700;cursor:pointer;font-family:'Rajdhani',sans-serif;text-transform:uppercase;}
+  .cell-bar button.stop{background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.4);color:#f87171;}
+  .cell iframe{flex:1;width:100%;border:0;background:#000;min-height:0;}
+  .cell .ph{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;font-family:'JetBrains Mono',monospace;}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&family=Rajdhani:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="bar">
+  <h1>📹 Multi-Vista</h1>
+  <span style="font-size:11px;color:var(--muted);">Distribución:</span>
+  <button class="lay-btn" data-n="1" onclick="setLayout(1)">1</button>
+  <button class="lay-btn active" data-n="4" onclick="setLayout(4)">2×2</button>
+  <button class="lay-btn" data-n="6" onclick="setLayout(6)">2×3</button>
+  <button class="lay-btn" data-n="9" onclick="setLayout(9)">3×3</button>
+  <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">
+    <input type="checkbox" id="useWebRtc"> WebRTC (def. RTMP)
+  </label>
+  <button class="lay-btn" onclick="loadDrones()" title="Refrescar drones">⟳</button>
+  <span id="note">Cada fuente consume ancho de banda + GPU. Con mando (no Dock) hay 1 stream por dron → varias fuentes = varios drones. Sube cámaras solo las que necesites.</span>
+</div>
+<div id="grid"></div>
+
+<script>
+  let drones = [];          // [{gatewaySn, label, deviceType}]
+  let layoutN = 4;
+  const cellState = {};     // idx -> { gatewaySn }
+
+  async function loadDrones(){
+    try{
+      const gws = await (await fetch('/api/admin/gateways',{cache:'no-store'})).json();
+      drones = gws.filter(g=>g.isOnline && g.aircraftSn)
+                  .map(g=>({ gatewaySn:g.gatewaySn, aircraftSn:g.aircraftSn,
+                             label:`${g.aircraftSn.slice(-6)} · ${g.deviceType||'Dron'} (${g.gatewaySn.slice(-4)})`,
+                             deviceType:g.deviceType }));
+      // Re-poblar selects existentes
+      document.querySelectorAll('.drone-sel').forEach(fillSelect);
+    }catch(e){ console.error('loadDrones',e); }
+  }
+
+  function fillSelect(sel){
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— elegir dron —</option>' +
+      drones.map(d=>`<option value="${d.gatewaySn}">${d.label}</option>`).join('');
+    if (drones.some(d=>d.gatewaySn===cur)) sel.value = cur;
+  }
+
+  function setLayout(n){
+    layoutN = n;
+    document.querySelectorAll('.lay-btn[data-n]').forEach(b=>b.classList.toggle('active', +b.dataset.n===n));
+    const cols = n===1?1 : n<=4?2 : 3;
+    const rows = Math.ceil(n/cols);
+    const grid = document.getElementById('grid');
+    grid.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+    grid.style.gridTemplateRows    = `repeat(${rows},1fr)`;
+    grid.innerHTML='';
+    for(let i=0;i<n;i++) grid.appendChild(buildCell(i));
+    document.querySelectorAll('.drone-sel').forEach(fillSelect);
+  }
+
+  function buildCell(idx){
+    const cell = document.createElement('div');
+    cell.className='cell';
+    cell.innerHTML = `
+      <div class="cell-bar">
+        <select class="drone-sel" id="sel-${idx}"></select>
+        <button onclick="viewCell(${idx})">▶ Ver</button>
+        <button class="stop" onclick="stopCell(${idx})">■</button>
+      </div>
+      <div class="ph" id="ph-${idx}">Celda ${idx+1} — elige un dron y pulsa Ver</div>`;
+    return cell;
+  }
+
+  async function viewCell(idx){
+    const sel = document.getElementById(`sel-${idx}`);
+    const gatewaySn = sel.value;
+    if(!gatewaySn){ return; }
+    const drone = drones.find(d=>d.gatewaySn===gatewaySn);
+    const ph = document.getElementById(`ph-${idx}`);
+    if(ph) ph.textContent = '⟳ Arrancando stream...';
+
+    // Detener un stream previo en esta celda (si era otro dron)
+    const prev = cellState[idx]?.gatewaySn;
+    if(prev && prev!==gatewaySn){ try{ await fetch(`/api/stream/stop-live/${prev}`,{method:'POST'});}catch{} }
+
+    // Leer cámara real del live_capacity (cameraIndex + videoIndex)
+    let cameraType='0-0-0', videoIndex='normal-0';
+    try{
+      const cap = await (await fetch(`/api/admin/live-capacity/${gatewaySn}`,{cache:'no-store'})).json();
+      const cam = cap?.deviceList?.[0]?.cameraList?.[0];
+      if(cam?.cameraIndex) cameraType = cam.cameraIndex;
+      if(cam?.videoList?.[0]?.videoIndex) videoIndex = cam.videoList[0].videoIndex;
+    }catch{}
+
+    const useWebRtc = document.getElementById('useWebRtc').checked;
+    try{
+      const res = await fetch('/api/stream/start-live',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ gatewaySn, videoId:null, quality:3, cameraType, videoIndex, useWebRtc })
+      });
+      const data = await res.json();
+      if(!res.ok || !data.whepUrl){ if(ph) ph.textContent = '✗ '+(data.error||'No se pudo arrancar'); return; }
+
+      cellState[idx] = { gatewaySn };
+      const src   = encodeURIComponent(data.whepUrl);
+      const title = encodeURIComponent(drone?.label || gatewaySn);
+      // Reemplazar placeholder por el reproductor (reutiliza video-window.html)
+      const cell = document.getElementById(`sel-${idx}`).closest('.cell');
+      const old = cell.querySelector('iframe'); if(old) old.remove();
+      if(ph) ph.remove();
+      const ifr = document.createElement('iframe');
+      ifr.src = `/video-window.html?src=${src}&title=${title}`;
+      ifr.allow = 'autoplay';
+      cell.appendChild(ifr);
+    }catch(e){ if(ph) ph.textContent = '✗ '+e.message; }
+  }
+
+  async function stopCell(idx){
+    const gatewaySn = cellState[idx]?.gatewaySn;
+    if(gatewaySn){ try{ await fetch(`/api/stream/stop-live/${gatewaySn}`,{method:'POST'});}catch{} }
+    delete cellState[idx];
+    const cell = document.getElementById(`sel-${idx}`).closest('.cell');
+    const ifr = cell.querySelector('iframe'); if(ifr) ifr.remove();
+    if(!cell.querySelector('.ph')){
+      const ph=document.createElement('div'); ph.className='ph'; ph.id=`ph-${idx}`;
+      ph.textContent=`Celda ${idx+1} — detenida`; cell.appendChild(ph);
+    }
+  }
+
+  // Init
+  setLayout(4);
+  loadDrones();
+  setInterval(loadDrones, 15000); // refrescar lista de drones
+</script>
+</body>
+</html>

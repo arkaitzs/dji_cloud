@@ -382,3 +382,14 @@ src/DjiCloudServer/appsettings.json
 2026_06_11/
 src/DjiCloudServer/wwwroot/pilot_logs/
 src/DjiCloudServer/wwwroot/waylines/
+
+cloud_api_sample/
+
+cloud-sdk/
+
+sample/
+
+# Servidor oficial DJI y SDK Java de referencia (NO subir — ficheros enormes)
+cloud_api_sample/
+cloud-sdk/
+sample/

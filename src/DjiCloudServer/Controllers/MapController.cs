@@ -25,32 +25,46 @@ public class MapController : ControllerBase
 
     // GET /map/api/v1/workspaces/{workspaceId}/element-groups
     [HttpGet("map/api/v1/workspaces/{workspaceId}/element-groups")]
-    public IActionResult GetElementGroups(string workspaceId)
+    public IActionResult GetElementGroups(
+        string workspaceId,
+        [FromQuery(Name = "group_id")] string? groupId = null,
+        [FromQuery(Name = "is_distributed")] bool? isDistributed = null)
     {
-        var groups = _mapData.GetGroups();
-        // FORMATO DE REFERENCIA (servidor Java DJI-Cloud-API-Demo):
-        // GetMapElementsResponse: id, name, type, is_lock, elements[]
-        // MapGroupElement: id, name, create_time, update_time, resource
-        // NO incluir: is_distributed (solo es query param), status (no está en el spec GET),
-        //             create_time de grupo (no está en GetMapElementsResponse Java)
+        // Filtrado como el servidor oficial (GroupServiceImpl): por group_id si viene,
+        // y por is_distributed (el RC pide is_distributed=true → solo capas distribuidas).
+        var groups = _mapData.GetGroups()
+            .Where(g => groupId == null || g.Id == groupId)
+            .Where(g => isDistributed == null || g.IsDistributed == isDistributed.Value)
+            .ToList();
+        // FORMATO conforme a la spec oficial (doc 42 map.ElementGroupOutput):
+        // id, type, name, is_lock, create_time, elements[].
+        // IMPORTANTE: la spec SOLO define resource.type 0=pin, 1=line, 2=polygon y
+        // geometrías Point/LineString/Polygon. Elementos no estándar (p.ej. Circle/type 7,
+        // extensión del RC) se EXCLUYEN del listado: si Pilot 2 valida estrictamente la
+        // lista al inicializar y encuentra un tipo desconocido, puede abortar el modo de
+        // sincronización de subida (descarga sí, POST de dibujos nuevos no).
         var result = groups.Select(g => new
         {
-            id       = g.Id,
-            name     = g.Name,
-            type     = g.Type,
-            is_lock  = g.IsLock,
-            elements = _mapData.GetElementsByGroup(g.Id).Select(e => new
-            {
-                id          = e.Id,
-                name        = e.Name,
-                create_time = e.CreateTime,
-                update_time = e.UpdateTime,
-                resource    = e.Resource
-            })
+            id             = g.Id,
+            name           = g.Name,
+            type           = g.Type,
+            is_lock        = g.IsLock,
+            is_distributed = g.IsDistributed,
+            create_time    = g.CreateTime,
+            elements       = _mapData.GetElementsByGroup(g.Id)
+                .Where(IsSpecCompliantElement)
+                .Select(e => new
+                {
+                    id          = e.Id,
+                    name        = e.Name,
+                    create_time = e.CreateTime,
+                    update_time = e.UpdateTime,
+                    resource    = e.Resource
+                })
         });
 
-        _logger.LogInformation("[MapController] GET element-groups workspace={WorkspaceId} → {GroupCount} grupos, {ElementCount} elementos",
-            workspaceId, groups.Count, groups.Sum(g => _mapData.GetElementsByGroup(g.Id).Count));
+        _logger.LogInformation("[MapController] GET element-groups workspace={WorkspaceId} → {GroupCount} grupos, {ElementCount} elementos conformes",
+            workspaceId, groups.Count, groups.Sum(g => _mapData.GetElementsByGroup(g.Id).Count(IsSpecCompliantElement)));
         return Ok(new { code = 0, message = "success", data = result });
     }
 
@@ -63,14 +77,16 @@ public class MapController : ControllerBase
         string workspaceId, string groupId,
         [FromQuery(Name = "is_distributed")] bool isDistributed = true)
     {
-        var elements = _mapData.GetElementsByGroup(groupId).Select(e => new
-        {
-            id          = e.Id,
-            name        = e.Name,
-            create_time = e.CreateTime,
-            update_time = e.UpdateTime,
-            resource    = e.Resource
-        }).ToList();
+        var elements = _mapData.GetElementsByGroup(groupId)
+            .Where(IsSpecCompliantElement)
+            .Select(e => new
+            {
+                id          = e.Id,
+                name        = e.Name,
+                create_time = e.CreateTime,
+                update_time = e.UpdateTime,
+                resource    = e.Resource
+            }).ToList();
 
         _logger.LogInformation(
             "[MapController] GET elements/{GroupId} workspace={WorkspaceId} isDistributed={IsDistributed} → {Count} elementos",
@@ -117,6 +133,22 @@ public class MapController : ControllerBase
     {
         var patchResource = body["resource"] as JObject;
 
+        // Si el payload viene en formato oficial DJI spec (content a nivel raíz en lugar de envuelto en resource)
+        if (patchResource == null && body["content"] is JObject content)
+        {
+            patchResource = new JObject
+            {
+                ["content"] = content
+            };
+
+            var existingElement = _mapData.GetElement(elementId);
+            var existingType = existingElement?.Resource?["type"]?.Value<int>();
+            if (existingType != null)
+            {
+                patchResource["type"] = existingType;
+            }
+        }
+
         // Preservar user_name al actualizar: si el body no lo trae (el RC nunca lo envía),
         // conservar el del elemento almacenado para no perder la atribución del creador.
         if (patchResource != null && string.IsNullOrEmpty(patchResource["user_name"]?.ToString()))
@@ -158,6 +190,19 @@ public class MapController : ControllerBase
         return Ok(new { code = 0, message = "success", data = new { } });
     }
 
+    // ── Helper: ¿el elemento cumple el esquema oficial DJI? ─────────────────────
+    // Spec doc 42: resource.type ∈ {0=pin, 1=line, 2=polygon} y geometry.type ∈
+    // {Point, LineString, Polygon}. Cualquier otra cosa (Circle/type 7 del RC) NO es
+    // estándar y se excluye del GET para no romper la inicialización del módulo map.
+    private static bool IsSpecCompliantElement(MapElement e)
+    {
+        var resType = e.Resource?["type"]?.Value<int?>();
+        if (resType is not (0 or 1 or 2)) return false;
+
+        var geomType = e.Resource?["content"]?["geometry"]?["type"]?.ToString();
+        return geomType is "Point" or "LineString" or "Polygon";
+    }
+
     // ── Helper: extraer el "operador" del nombre automático del RC ──────────────
     // DJI Pilot 2 nombra los elementos como "<prefijo> <número>" (p.ej. "local_user 50").
     // El prefijo es el elementPreName configurado en platformLoadComponent("map", ...).
@@ -180,5 +225,19 @@ public class MapController : ControllerBase
     {
         _logger.LogDebug("[MapController] GET flight-areas/url workspace={WorkspaceId} → respuesta vacía OK", workspaceId);
         return Ok(new { code = 0, message = "success", data = new { url = "" } });
+    }
+
+    // GET /map/api/v1/workspaces/{workspaceId}/element-icons
+    // DJI Pilot 2 (versiones recientes) llama a este endpoint durante la inicialización
+    // del módulo de mapa para obtener el catálogo de iconos disponibles. NO está en la
+    // documentación oficial v1.11, pero el RC lo invoca repetidamente. Si devuelve 404,
+    // Pilot 2 puede dejar el módulo de mapa en modo SOLO-LECTURA (descarga elementos pero
+    // NUNCA hace POST de los dibujados por el piloto) — mismo patrón degradado que
+    // flight-areas/url. Devolvemos una lista vacía válida para habilitar la subida.
+    [HttpGet("map/api/v1/workspaces/{workspaceId}/element-icons")]
+    public IActionResult GetElementIcons(string workspaceId)
+    {
+        _logger.LogInformation("[MapController] GET element-icons workspace={WorkspaceId} → lista vacía OK (evita modo degradado)", workspaceId);
+        return Ok(new { code = 0, message = "success", data = new List<object>() });
     }
 }

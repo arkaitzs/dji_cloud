@@ -25,10 +25,13 @@ public class MapDataService : IMapDataService
 
     private const string DefaultGroupId = "e3dea0f5-37f2-4d79-ae58-490af3228001";
 
-    // DJI Pilot 2 always uses this zero-UUID as the group_id when posting new map elements.
-    // Without a matching group entry in the store, GET /element-groups will never return
-    // Pilot 2 elements even though they are stored correctly.
-    private const string PilotSharedGroupId = "00000000-0000-0000-0000-000000000000";
+    // Capa "Pilot Share Layer" (type 2) — DEBE tener un UUID REAL y is_distributed=1,
+    // EXACTAMENTE como el seed oficial de DJI (verificado 2026-06-14 contra el servidor
+    // oficial: el RC sube los dibujos EN TIEMPO REAL a este grupo). El zero-UUID que
+    // usábamos antes Pilot lo trataba como capa LOCAL → solo subía en batch al reconectar.
+    private const string PilotSharedGroupId    = "e3dea0f5-37f2-4d79-ae58-490af3228060";
+    // UUID antiguo (zero) — migramos sus elementos al UUID real arriba.
+    private const string OldPilotSharedGroupId = "00000000-0000-0000-0000-000000000000";
 
     public MapDataService(ILogger<MapDataService> logger)
     {
@@ -40,37 +43,44 @@ public class MapDataService : IMapDataService
         {
             bool changed = false;
 
-            // ── CRÍTICO: grupo App Shared (zero-UUID) ──────────────────────────────
-            // DJI Pilot 2 siempre envía POST elements a group_id="00000000-...".
-            // Sin esta entrada en el store, GET /element-groups no devuelve esos
-            // elementos aunque estén guardados en disco. Este grupo DEBE existir.
+            // ── MIGRACIÓN: zero-UUID → UUID real del Pilot Share Layer ─────────────
+            // El grupo type-2 pasó de zero-UUID a UUID real (e3dea0f5-...-3228060) para
+            // que el RC suba en tiempo real. Movemos el grupo viejo y sus elementos.
+            var legacyGroup = _store.Groups.FirstOrDefault(g => g.Id == OldPilotSharedGroupId);
+            if (legacyGroup != null) { _store.Groups.Remove(legacyGroup); changed = true; }
+            foreach (var el in _store.Elements.Where(e => e.GroupId == OldPilotSharedGroupId))
+            {
+                el.GroupId = PilotSharedGroupId;
+                changed = true;
+            }
+            if (changed)
+                _logger.LogInformation("[MapData] Migración Pilot Share Layer: zero-UUID → {NewId}", PilotSharedGroupId);
+
+            // ── CRÍTICO: grupo Pilot Share Layer (type 2, UUID real, is_distributed=1)
+            // Seed oficial DJI. El RC POSTea sus dibujos a este grupo EN TIEMPO REAL.
             if (!_store.Groups.Any(g => g.Id == PilotSharedGroupId))
             {
                 _store.Groups.Insert(0, new ElementGroup
                 {
                     Id = PilotSharedGroupId,
-                    Name = "APP",
+                    Name = "Pilot Share Layer",
                     Type = 2,   // App Shared Element Group — requerido por DJI Pilot 2
                     IsLock = false,
+                    IsDistributed = true,
                     CreateTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 });
                 _logger.LogInformation(
-                    "[MapData] Grupo App Shared (id=00000000-..., type=2) creado. " +
-                    "DJI Pilot 2 sincronizará elementos de mapa en este grupo.");
+                    "[MapData] Grupo Pilot Share Layer (UUID real {Id}, type=2, is_distributed=1) creado.",
+                    PilotSharedGroupId);
                 changed = true;
             }
             else
             {
-                // Migración: si el grupo ya existe pero tiene tipo incorrecto, corregirlo
+                // Migración: si el grupo ya existe, asegurar type=2 + is_distributed=1
                 var pilotGroup = _store.Groups.First(g => g.Id == PilotSharedGroupId);
-                if (pilotGroup.Type != 2)
-                {
-                    _logger.LogWarning(
-                        "[MapData] Corrigiendo type del grupo App Shared (00000000-...): {OldType} → 2",
-                        pilotGroup.Type);
-                    pilotGroup.Type = 2;
-                    changed = true;
-                }
+                if (pilotGroup.Type != 2) { pilotGroup.Type = 2; changed = true; }
+                if (!pilotGroup.IsDistributed) { pilotGroup.IsDistributed = true; changed = true; }
+                if (pilotGroup.Name == "APP") { pilotGroup.Name = "Pilot Share Layer"; changed = true; }
             }
 
             // ── Grupo por defecto para el mapa web (Default Layer, type 1) ────────

@@ -15,11 +15,14 @@
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="/lib/leaflet.css" />
+    <!-- Leaflet-Geoman (edición interactiva: arrastrar, vértices, resize) -->
+    <link rel="stylesheet" href="/lib/leaflet-geoman.css" />
 
     <!-- JS libraries loaded in <head> so they are available before any body content renders.
          This prevents a race condition where toolbar buttons are clickable before the inline
          script at the bottom of <body> has executed (visible e.g. with VPN latency). -->
     <script src="/lib/leaflet.js"></script>
+    <script src="/lib/leaflet-geoman.min.js"></script>
     <script src="/lib/signalr.min.js"></script>
     <script src="/lib/leaflet-omnivore.min.js"></script>
     <script src="/lib/hls.min.js"></script>
@@ -1478,21 +1481,10 @@
         <!-- Botones admin de sincronización mando↔servidor -->
         <div style="display:flex; align-items:center; gap:5px; margin-left:10px; border-left:1px solid rgba(255,255,255,0.15); padding-left:10px;">
             <button id="btn-rc-sync" onclick="rcAdminAction('refresh')"
-                title="Envía map_group_refresh al mando RC para que descargue todos los elementos del servidor"
+                title="Fuerza una resincronización: envía map_group_refresh a los mandos para que re-descarguen todos los elementos del servidor"
                 style="font-size:11px;padding:3px 8px;background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);color:#06b6d4;border-radius:4px;cursor:pointer;white-space:nowrap;">
                 📡 Sync RC
             </button>
-            <button id="btn-rc-block" onclick="rcAdminAction('block')"
-                title="Paso 1: Bloquea el WS y desconecta el mando. LUEGO crea el elemento en Pilot 2 MIENTRAS aparece este badge en rojo. Luego pulsa Desbloquear."
-                style="font-size:11px;padding:3px 8px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;border-radius:4px;cursor:pointer;white-space:nowrap;">
-                🔒 Bloquear WS
-            </button>
-            <button id="btn-rc-unblock" onclick="rcAdminAction('unblock')"
-                title="Paso 2: Desbloquea el WS. El mando RC reconectará y subirá los elementos creados mientras estaba offline."
-                style="font-size:11px;padding:3px 8px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#22c55e;border-radius:4px;cursor:pointer;white-space:nowrap; display:none;">
-                🔓 Desbloquear
-            </button>
-            <span id="rc-block-hint" style="font-size:10px;color:#f59e0b;display:none;">⚠️ WS bloqueado — crea el elemento en Pilot 2 ahora</span>
         </div>
     </div>
 
@@ -1514,6 +1506,10 @@
         <button class="layer-btn" onclick="openVideoPanel()" style="color:var(--accent-cyan);">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
             Video / KLV
+        </button>
+        <button class="layer-btn" onclick="window.open('/multiview.html','djicloud_multiview')" style="color:var(--accent-cyan);" title="Ver varias cámaras a la vez">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            Multi-Vista
         </button>
         <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
         <button class="layer-btn" id="route-planner-btn" onclick="openRoutePlanner()" style="color:var(--accent-success);">
@@ -1563,11 +1559,35 @@
             </button>
         </div>
         <div style="padding:12px 16px; border-bottom:1px solid var(--panel-border);">
-            <button id="map-add-point-btn" onclick="toggleMapDrawMode()" style="width:100%; background:rgba(6,182,212,0.1); border:1px solid rgba(6,182,212,0.3); color:var(--accent-cyan); border-radius:10px; padding:8px 12px; cursor:pointer; font-family:'Rajdhani',sans-serif; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; transition:all 0.2s; display:flex; align-items:center; justify-content:center; gap:8px;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-                <span id="map-add-point-label">Añadir Punto</span>
-            </button>
+            <div style="display:flex; gap:5px;">
+                <button id="draw-tool-point"   onclick="setDrawMode('point')"   class="draw-tool" title="Punto">⬤</button>
+                <button id="draw-tool-line"    onclick="setDrawMode('line')"    class="draw-tool" title="Línea">╱</button>
+                <button id="draw-tool-polygon" onclick="setDrawMode('polygon')" class="draw-tool" title="Polígono">▱</button>
+                <button id="draw-tool-circle"  onclick="setDrawMode('circle')"  class="draw-tool" title="Círculo">◯</button>
+                <button id="draw-tool-edit"    onclick="toggleEditMode()"       class="draw-tool" title="Editar: arrastrar / mover vértices / redimensionar">✎</button>
+                <button id="draw-tool-erase"   onclick="toggleEraseMode()"      class="draw-tool" title="Borrar: click en un elemento">🗑</button>
+                <button id="draw-finish-btn"   onclick="finishDrawing()" style="display:none; flex:2; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.5); color:#4ade80; border-radius:8px; cursor:pointer; font-family:'Rajdhani',sans-serif; font-weight:700; font-size:12px;">✓ Terminar</button>
+            </div>
+            <!-- Paleta de colores DJI (los únicos que el RC renderiza) -->
+            <div style="display:flex; gap:7px; margin-top:9px; align-items:center;">
+                <span style="font-size:10px;color:var(--text-muted);">Color:</span>
+                <span class="palette-sw active" data-c="#2D8CF0" onclick="setDrawColor('#2D8CF0',this)" style="background:#2D8CF0" title="Azul"></span>
+                <span class="palette-sw" data-c="#19BE6B" onclick="setDrawColor('#19BE6B',this)" style="background:#19BE6B" title="Verde"></span>
+                <span class="palette-sw" data-c="#FFBB00" onclick="setDrawColor('#FFBB00',this)" style="background:#FFBB00" title="Amarillo"></span>
+                <span class="palette-sw" data-c="#B620E0" onclick="setDrawColor('#B620E0',this)" style="background:#B620E0" title="Morado"></span>
+                <span class="palette-sw" data-c="#E23C39" onclick="setDrawColor('#E23C39',this)" style="background:#E23C39" title="Rojo"></span>
+                <span class="palette-sw" data-c="#212121" onclick="setDrawColor('#212121',this)" style="background:#212121; border-color:#555;" title="Negro"></span>
+            </div>
+            <div id="draw-hint" style="font-size:10px; color:var(--text-muted); margin-top:6px; min-height:13px;"></div>
         </div>
+        <style>
+            .draw-tool { flex:1; background:rgba(6,182,212,0.08); border:1px solid rgba(6,182,212,0.3); color:var(--accent-cyan); border-radius:8px; padding:8px 0; cursor:pointer; font-size:15px; transition:all 0.15s; }
+            .draw-tool:hover { background:rgba(6,182,212,0.2); }
+            .draw-tool.active { background:rgba(6,182,212,0.4); border-color:var(--accent-cyan); }
+            .palette-sw { width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid transparent; box-shadow:0 0 0 1px rgba(255,255,255,0.15); transition:transform 0.1s; }
+            .palette-sw:hover { transform:scale(1.15); }
+            .palette-sw.active { border-color:#fff; transform:scale(1.15); }
+        </style>
         <div id="map-elements-list" style="max-height:340px; overflow-y:auto; padding:8px;">
             <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:13px;">Cargando...</div>
         </div>
@@ -2465,6 +2485,118 @@
             `;
         }
 
+        // ── DEM (Modelo Digital de Elevación) vía tiles Terrarium ──────────────────
+        // Por defecto usa los Terrain Tiles públicos de AWS (online). Para OFFLINE,
+        // genera los tiles del MDT05 del IGN y cambia urlTemplate a '/lib/dem/{z}/{x}/{y}.png'.
+        const DEM = {
+            enabled: true,
+            zoom: 13,   // ≈20 m/píxel; sube a 14 (≈10 m) si tienes tiles de más detalle
+            urlTemplate: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+            _tiles: {}  // cache 'z/x/y' -> { data: ImageData, size, loading, error }
+        };
+        function _demTileXY(lat, lon, z) {
+            const n = Math.pow(2, z);
+            const x = (lon + 180) / 360 * n;
+            const latRad = lat * Math.PI / 180;
+            const y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+            return { x, y, n };
+        }
+        function _demLoadTile(z, x, y) {
+            const key = z + '/' + x + '/' + y;
+            let e = DEM._tiles[key];
+            if (e) return e;
+            e = { loading: true, data: null }; DEM._tiles[key] = e;
+            const img = new Image(); img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                try {
+                    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+                    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+                    e.data = ctx.getImageData(0, 0, img.width, img.height); e.size = img.width;
+                } catch(_) { e.error = true; }
+                e.loading = false;
+            };
+            img.onerror = () => { e.error = true; e.loading = false; };
+            img.src = DEM.urlTemplate.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+            return e;
+        }
+        // Elevación en metros (datum del DEM) o null si el tile aún no está cargado.
+        function getElevation(lat, lon) {
+            if (!DEM.enabled) return null;
+            const z = DEM.zoom;
+            const t = _demTileXY(lat, lon, z);
+            const tx = Math.floor(t.x), ty = Math.floor(t.y);
+            const e = _demLoadTile(z, tx, ty);
+            if (!e.data) return null;
+            const s = e.size;
+            const px = Math.min(s - 1, Math.max(0, Math.floor((t.x - tx) * s)));
+            const py = Math.min(s - 1, Math.max(0, Math.floor((t.y - ty) * s)));
+            const i = (py * s + px) * 4;
+            const R = e.data.data[i], G = e.data.data[i + 1], B = e.data.data[i + 2];
+            return (R * 256 + G + B / 256) - 32768;   // fórmula Terrarium
+        }
+        window.getElevation = getElevation;
+
+        // Huella de cámara CON TERRENO: ray-march de cada esquina contra el DEM.
+        // agl = altura del dron sobre el suelo bajo él (relativa). Usamos DIFERENCIAS de
+        // elevación respecto al terreno bajo el dron → el datum del DEM se cancela.
+        // Devuelve null si el DEM aún no está listo (el llamador hace fallback al plano).
+        function calculateCameraFootprintTerrain(lat, lon, agl, pitch, roll, yaw, zoom) {
+            const demDrone = getElevation(lat, lon);
+            if (demDrone === null || !(agl > 0)) return null;
+            const toRad = d => d * Math.PI / 180;
+            const pr = toRad(pitch), rr = toRad(roll), yr = toRad(yaw);
+            const v_opt   = [Math.sin(yr)*Math.cos(pr), Math.cos(yr)*Math.cos(pr), Math.sin(pr)];
+            const u_right = [Math.cos(yr), -Math.sin(yr), 0];
+            const w_up    = [-Math.sin(yr)*Math.sin(pr), -Math.cos(yr)*Math.sin(pr), Math.cos(pr)];
+            const cR = Math.cos(rr), sR = Math.sin(rr);
+            const ur = [cR*u_right[0]+sR*w_up[0], cR*u_right[1]+sR*w_up[1], cR*u_right[2]+sR*w_up[2]];
+            const wr = [-sR*u_right[0]+cR*w_up[0], -sR*u_right[1]+cR*w_up[1], -sR*u_right[2]+cR*w_up[2]];
+            const tanH = Math.tan(toRad(37)) / zoom, tanV = Math.tan(toRad(29.5)) / zoom;
+            const corners = [[-tanH,tanV],[tanH,tanV],[tanH,-tanV],[-tanH,-tanV]];
+            const mLat = 111132, mLon = 111132 * Math.cos(toRad(lat));
+            const maxDist = Math.max(agl * 20, 3000), step = 10;
+            const out = [];
+            for (let k = 0; k < 4; k++) {
+                const xc = corners[k][0], yc = corners[k][1];
+                let dx = v_opt[0]+xc*ur[0]+yc*wr[0], dy = v_opt[1]+xc*ur[1]+yc*wr[1], dz = v_opt[2]+xc*ur[2]+yc*wr[2];
+                const L = Math.hypot(dx,dy,dz); dx/=L; dy/=L; dz/=L;
+                let last = null, hit = null, prevDiff = agl;  // diferencia rayo-terreno en t=0 (>0)
+                for (let t = step; t <= maxDist; t += step) {
+                    const pLat = lat + (t*dy)/mLat, pLon = lon + (t*dx)/mLon;
+                    const terr = getElevation(pLat, pLon);
+                    if (terr === null) return null;             // DEM no listo → fallback
+                    const rayRel = agl + t*dz;                  // altura del rayo sobre el suelo del dron
+                    const terrRel = terr - demDrone;            // altura del terreno sobre el suelo del dron
+                    const diff = rayRel - terrRel;
+                    if (diff <= 0) {                            // cruzó el terreno entre last y aquí
+                        const f = prevDiff / (prevDiff - diff); // interpolación lineal del cruce
+                        const tt = (t - step) + f * step;
+                        hit = [lat + (tt*dy)/mLat, lon + (tt*dx)/mLon];
+                        break;
+                    }
+                    prevDiff = diff; last = [pLat, pLon];
+                }
+                out.push(hit || last || [lat, lon]);
+            }
+            // Centro: intersección del EJE ÓPTICO (xc=0,yc=0) con el terreno
+            {
+                let dx = v_opt[0], dy = v_opt[1], dz = v_opt[2];
+                const L = Math.hypot(dx,dy,dz); dx/=L; dy/=L; dz/=L;
+                let prevDiff = agl, center = [lat, lon];
+                for (let t = step; t <= maxDist; t += step) {
+                    const pLat = lat + (t*dy)/mLat, pLon = lon + (t*dx)/mLon;
+                    const terr = getElevation(pLat, pLon); if (terr === null) break;
+                    const diff = (agl + t*dz) - (terr - demDrone);
+                    if (diff <= 0) { const f = prevDiff/(prevDiff-diff); const tt = (t-step)+f*step;
+                                     center = [lat + (tt*dy)/mLat, lon + (tt*dx)/mLon]; break; }
+                    prevDiff = diff; center = [pLat, pLon];
+                }
+                DEM._lastCenter = center;
+            }
+            return out;
+        }
+        window.calculateCameraFootprintTerrain = calculateCameraFootprintTerrain;
+
         // Función para calcular la proyección en el suelo del trapecio de la cámara (FOV)
         function calculateCameraFootprint(lat, lon, alt, pitch, roll, yaw, zoom) {
             const toRad = deg => deg * Math.PI / 180;
@@ -2796,9 +2928,11 @@
                         ? `<span style="font-size:9px;color:var(--text-muted);">↳ ${gw.aircraftSn} · Dron</span>`
                         : `<span style="font-size:9px;color:var(--text-muted);font-style:italic;">sin aeronave pareada</span>`;
 
-                    const batHtml = gw.batteryPercent >= 0
+                    // Mandos que no reportan batería por Cloud API (capacity_percent=0 siempre,
+                    // p.ej. RC type 174) → mostrar "—" en vez de "0%" engañoso.
+                    const batHtml = gw.batteryPercent > 0
                         ? `<span style="font-size:9px;color:${gw.batteryPercent>30?'var(--accent-success)':gw.batteryPercent>15?'#f59e0b':'var(--accent-danger)'};">🔋${gw.batteryPercent}%</span>`
-                        : '';
+                        : `<span style="font-size:9px;color:var(--text-muted);" title="Este mando no reporta su batería">🔋—</span>`;
                     const agoSecs = gw.lastSeen > 0 ? Math.round((Date.now() - gw.lastSeen) / 1000) : null;
                     const agoHtml = agoSecs !== null
                         ? `<span style="font-size:8px;color:var(--text-muted);">·&nbsp;hace&nbsp;${agoSecs}s</span>`
@@ -3212,11 +3346,18 @@
             }
 
             // --- CÁLCULO Y DIBUJO DEL TRAPECIO DE LA CÁMARA (FOV) Y ENLACE ---
-            const footprint = calculateCameraFootprint(latitude, longitude, altitude, gimbalPitch, gimbalRoll, gimbalYaw, zoomFactor);
+            // Con DEM: ray-march contra el terreno (intersección real). Si el DEM aún no
+            // está cargado (devuelve null), fallback a la proyección sobre suelo plano.
+            DEM._lastCenter = null;
+            const footprint =
+                (DEM.enabled && calculateCameraFootprintTerrain(latitude, longitude, elevation, gimbalPitch, gimbalRoll, gimbalYaw, zoomFactor))
+                || calculateCameraFootprint(latitude, longitude, altitude, gimbalPitch, gimbalRoll, gimbalYaw, zoomFactor);
             
             // Centro geométrico para la línea de enlace
-            const centerLat = (footprint[0][0] + footprint[1][0] + footprint[2][0] + footprint[3][0]) / 4;
-            const centerLon = (footprint[0][1] + footprint[1][1] + footprint[2][1] + footprint[3][1]) / 4;
+            // Centro: intersección real del eje óptico con el terreno (si hubo DEM),
+            // si no, el centroide de las 4 esquinas.
+            const centerLat = DEM._lastCenter ? DEM._lastCenter[0] : (footprint[0][0] + footprint[1][0] + footprint[2][0] + footprint[3][0]) / 4;
+            const centerLon = DEM._lastCenter ? DEM._lastCenter[1] : (footprint[0][1] + footprint[1][1] + footprint[2][1] + footprint[3][1]) / 4;
             const centerPos = new L.LatLng(centerLat, centerLon);
 
             // Dibujar o actualizar el polígono del trapecio
@@ -3740,21 +3881,22 @@
                 } else if (geom.type === 'Polygon') {
                     const lls = (geom.coordinates[0] || []).map(([lon, lat]) => [lat, lon]);
                     layer = L.polygon(lls, { color, fillOpacity: 0.2, weight: 2 });
+                } else if (geom.type === 'Circle') {
+                    const [lon, lat] = geom.coordinates;
+                    layer = L.circle([lat, lon], { radius: geom.radius || 0, color, fillOpacity: 0.15, weight: 2 });
                 }
 
                 if (!layer) return;
 
                 const label = element.name || 'Elemento';
-                layer.bindPopup(
-                    `<div style="font-family:'Outfit',sans-serif;min-width:150px;">` +
-                    `<div style="font-weight:700;font-size:13px;margin-bottom:6px;">${label}</div>` +
-                    `<div style="font-size:11px;color:#64748b;margin-bottom:10px;">${geom.type}</div>` +
-                    `<button onclick="deleteMapElement('${element.id}')" ` +
-                    `style="background:#ef4444;color:#fff;border:none;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;width:100%;">` +
-                    `Eliminar</button></div>`
-                );
+                const radiusLine = geom.type === 'Circle'
+                    ? `<div style="font-size:11px;color:#64748b;">radio: ${Math.round(geom.radius || 0)} m</div>` : '';
+                // Popup solo informativo (editar/borrar están en la BARRA, no aquí)
+                layer.bindTooltip(`${label} · ${geom.type}${geom.type==='Circle'?' · '+Math.round(geom.radius||0)+' m':''}`, { direction:'top' });
                 layer.addTo(mapElementsLayer);
                 _mapElementMarkers[element.id] = layer;
+                // Edición interactiva (Geoman) + click para seleccionar/borrar
+                try { if (window._wireLayerEdit) _wireLayerEdit(layer, element); } catch(_) {}
             } catch(err) {
                 console.warn('[MapElements] Error dibujando:', err);
             }
@@ -3813,51 +3955,243 @@
             }
         }
 
-        function toggleMapDrawMode() {
-            _mapDrawMode = !_mapDrawMode;
-            const btn   = document.getElementById('map-add-point-btn');
-            const label = document.getElementById('map-add-point-label');
-            map.getContainer().style.cursor = _mapDrawMode ? 'crosshair' : '';
-            if (btn) {
-                btn.style.background = _mapDrawMode ? 'rgba(6,182,212,0.3)' : 'rgba(6,182,212,0.1)';
-                btn.style.borderColor = _mapDrawMode ? 'rgba(6,182,212,0.8)' : 'rgba(6,182,212,0.3)';
+        // Paleta DJI (los únicos colores que el RC renderiza)
+        const DJI_PALETTE = { Azul:'#2D8CF0', Verde:'#19BE6B', Amarillo:'#FFBB00', Morado:'#B620E0', Rojo:'#E23C39', Negro:'#212121' };
+
+        // Editar un elemento (nombre, color y — para círculos — el radio). PUT → propaga al mando.
+        async function editMapElement(id) {
+            const el = _allMapElements.find(e => e.id === id);
+            if (!el || !el.resource) { addLog('Elemento no encontrado para editar.', 'system'); return; }
+            map.closePopup();
+
+            const resource = JSON.parse(JSON.stringify(el.resource));   // clon editable
+            const geom = resource.content?.geometry;
+            const props = resource.content?.properties || (resource.content.properties = {});
+
+            const newName = prompt('Nombre:', el.name || '');
+            if (newName === null) return;
+
+            const colorNames = Object.keys(DJI_PALETTE).join(' / ');
+            const curColor = (Object.entries(DJI_PALETTE).find(([,v]) => v.toLowerCase() === (props.color||'').toLowerCase())?.[0]) || 'Azul';
+            const colName = prompt(`Color (${colorNames}):`, curColor);
+            if (colName && DJI_PALETTE[colName]) props.color = DJI_PALETTE[colName];
+
+            if (geom?.type === 'Circle') {
+                const newR = prompt('Radio del círculo (metros):', Math.round(geom.radius || 0));
+                if (newR !== null && !isNaN(parseFloat(newR))) geom.radius = parseFloat(newR);
             }
-            if (label) label.textContent = _mapDrawMode ? 'Click en el mapa para colocar' : 'Añadir Punto';
-            if (_mapDrawMode) addLog('Modo dibujo activo — haz click en el mapa para añadir un punto.', 'system');
-        }
-
-        // Click en el mapa para añadir punto táctica
-        map.on('click', async function(e) {
-            if (!_mapDrawMode) return;
-            toggleMapDrawMode(); // desactivar modo antes de prompt
-
-            const name = prompt('Nombre del punto (ej: POI, Zona de aterrizaje...):', 'Punto') || 'Punto';
-            const resource = {
-                type: 0,
-                content: {
-                    type: 'Feature',
-                    // Formato nativo de DJI Pilot 2 para puntos: 3D [lon, lat, 0.0] + clampToGround true
-                    // Color: SOLO paleta DJI (2D8CF0/19BE6B/FFBB00/B620E0/E23C39/212121) — otros se descartan en el RC
-                    properties: { color: '#2D8CF0', clampToGround: true },
-                    geometry: {
-                        type: 'Point',
-                        coordinates: [e.latlng.lng, e.latlng.lat, 0.0],
-                        radius: 0.0
-                    }
-                }
-            };
 
             try {
+                await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/elements/${id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName, resource })
+                });
+                addLog(`Elemento "${newName}" actualizado.`, 'system');
+                // El cambio llegará de vuelta por SignalR (MapElementUpdate)
+            } catch(err) { addLog('Error editando elemento: ' + err.message, 'system'); }
+        }
+        window.editMapElement = editMapElement;
+
+        // ── Sistema de dibujo multi-figura (punto/línea/polígono/círculo) ──────────
+        let _drawMode    = null;   // 'point'|'line'|'polygon'|'circle'|null
+        let _drawPts     = [];     // vértices acumulados (line/polygon)
+        let _drawTemp    = null;   // capa de previsualización
+        let _circleCtr   = null;   // centro del círculo en construcción
+        let DRAW_COLOR   = '#2D8CF0';   // color activo (paleta DJI)
+
+        function setDrawMode(mode) {
+            if (_drawMode === mode) mode = null;   // re-pulsar = desactivar
+            _cancelDrawing();
+            _drawMode = mode;
+            map.getContainer().style.cursor = mode ? 'crosshair' : '';
+            // doble-click termina figura → desactivar el zoom por doble-click mientras se dibuja
+            if (mode === 'line' || mode === 'polygon') map.doubleClickZoom.disable();
+            else map.doubleClickZoom.enable();
+            ['point','line','polygon','circle'].forEach(m => {
+                document.getElementById('draw-tool-' + m)?.classList.toggle('active', m === mode);
+            });
+            const fin = document.getElementById('draw-finish-btn');
+            if (fin) fin.style.display = (mode === 'line' || mode === 'polygon') ? '' : 'none';
+            const hint = document.getElementById('draw-hint');
+            if (hint) hint.textContent =
+                mode === 'point'   ? 'Click en el mapa para colocar el punto.' :
+                mode === 'line'    ? 'Click para añadir vértices · "Terminar" o doble-click.' :
+                mode === 'polygon' ? 'Click para añadir vértices (≥3) · "Terminar" o doble-click.' :
+                mode === 'circle'  ? 'Click en el centro, luego click en el borde.' : '';
+        }
+        window.setDrawMode = setDrawMode;
+
+        function _cancelDrawing() {
+            _drawPts = []; _circleCtr = null;
+            if (_drawTemp) { map.removeLayer(_drawTemp); _drawTemp = null; }
+        }
+
+        async function _sendElement(name, resType, geomType, coordinates, radius = 0.0) {
+            const resource = {
+                type: resType,
+                content: {
+                    type: 'Feature',
+                    properties: { color: DRAW_COLOR, clampToGround: geomType === 'Point' },
+                    geometry: { type: geomType, coordinates, radius }
+                }
+            };
+            try {
                 await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/elements`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, resource })
                 });
-                // El elemento llegará de vuelta por SignalR (MapElementCreate)
-            } catch(err) {
-                addLog('Error creando elemento: ' + err.message, 'system');
+                addLog(`Elemento "${name}" (${geomType}) enviado al servidor.`, 'system');
+            } catch (err) { addLog('Error creando elemento: ' + err.message, 'system'); }
+        }
+
+        async function finishDrawing() {
+            if (_drawMode === 'line' && _drawPts.length >= 2) {
+                const name = prompt('Nombre de la línea:', 'Línea') || 'Línea';
+                await _sendElement(name, 1, 'LineString', _drawPts.map(p => [p.lng, p.lat]));
+            } else if (_drawMode === 'polygon' && _drawPts.length >= 3) {
+                const name = prompt('Nombre del polígono:', 'Polígono') || 'Polígono';
+                const ring = _drawPts.map(p => [p.lng, p.lat]);
+                ring.push(ring[0]);   // cerrar el anillo
+                await _sendElement(name, 2, 'Polygon', [ring]);
+            } else {
+                addLog('Faltan vértices para crear la figura.', 'system');
+                return;
+            }
+            setDrawMode(null);
+        }
+        window.finishDrawing = finishDrawing;
+
+        map.on('click', async function(e) {
+            if (!_drawMode) return;
+            if (_drawMode === 'point') {
+                setDrawMode(null);
+                const name = prompt('Nombre del punto:', 'Punto') || 'Punto';
+                await _sendElement(name, 0, 'Point', [e.latlng.lng, e.latlng.lat, 0.0]);
+            } else if (_drawMode === 'line' || _drawMode === 'polygon') {
+                _drawPts.push(e.latlng);
+                if (_drawTemp) map.removeLayer(_drawTemp);
+                _drawTemp = (_drawMode === 'line')
+                    ? L.polyline(_drawPts, { color: DRAW_COLOR, weight: 3, dashArray: '5,5' }).addTo(map)
+                    : L.polygon(_drawPts, { color: DRAW_COLOR, weight: 2, fillOpacity: 0.15, dashArray: '5,5' }).addTo(map);
+            } else if (_drawMode === 'circle') {
+                if (!_circleCtr) {
+                    _circleCtr = e.latlng;
+                    _drawTemp  = L.circleMarker(e.latlng, { color: DRAW_COLOR, radius: 4 }).addTo(map);
+                } else {
+                    const radius = Math.round(_circleCtr.distanceTo(e.latlng)); // metros
+                    const name = prompt(`Nombre del círculo (radio ${radius} m):`, 'Círculo') || 'Círculo';
+                    await _sendElement(name, 2, 'Circle', [_circleCtr.lng, _circleCtr.lat], radius);
+                    setDrawMode(null);
+                }
             }
         });
+
+        // Doble click termina línea/polígono
+        map.on('dblclick', function() {
+            if (_drawMode === 'line' || _drawMode === 'polygon') finishDrawing();
+        });
+
+        // ── Paleta de color ────────────────────────────────────────────────────────
+        // Selecciona el color activo (para nuevos dibujos) y, si hay un elemento
+        // seleccionado en modo edición, lo recolorea y lo guarda (PUT → mando).
+        let _selectedElementId = null;
+        async function setDrawColor(color, el) {
+            DRAW_COLOR = color;
+            document.querySelectorAll('.palette-sw').forEach(s => s.classList.toggle('active', s === el));
+            if (_selectedElementId) {
+                const elem = _allMapElements.find(e => e.id === _selectedElementId);
+                if (elem?.resource?.content?.properties) {
+                    const r = JSON.parse(JSON.stringify(elem.resource));
+                    r.content.properties.color = color;
+                    await _putElement(_selectedElementId, elem.name, r);
+                }
+            }
+        }
+        window.setDrawColor = setDrawColor;
+
+        // ── PUT helper (actualizar un elemento) ─────────────────────────────────────
+        async function _putElement(id, name, resource) {
+            try {
+                await fetch(`/api/web-map/workspaces/${MAP_WORKSPACE_ID}/elements/${id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, resource })
+                });
+                addLog(`Elemento "${name}" actualizado.`, 'system');
+            } catch (err) { addLog('Error actualizando elemento: ' + err.message, 'system'); }
+        }
+
+        // ── Convertir la geometría ACTUAL de una capa Leaflet (tras editar) al formato DJI
+        function _layerToResource(layer, element) {
+            const r = JSON.parse(JSON.stringify(element.resource));   // preserva type/color/props
+            const geom = r.content.geometry;
+            if (geom.type === 'Point') {
+                const ll = layer.getLatLng();
+                geom.coordinates = [ll.lng, ll.lat, 0.0];
+            } else if (geom.type === 'Circle') {
+                const ll = layer.getLatLng();
+                geom.coordinates = [ll.lng, ll.lat];
+                geom.radius = Math.round(layer.getRadius());
+            } else if (geom.type === 'LineString') {
+                geom.coordinates = layer.getLatLngs().map(p => [p.lng, p.lat]);
+            } else if (geom.type === 'Polygon') {
+                const ring = (layer.getLatLngs()[0] || []).map(p => [p.lng, p.lat]);
+                if (ring.length) ring.push(ring[0]);   // cerrar anillo
+                geom.coordinates = [ring];
+            }
+            return r;
+        }
+
+        // ── Geoman: edición interactiva SOLO de los elementos de mapa ──────────────
+        // (edición global afectaría drones/rutas → usamos edición por-capa)
+        try { map.pm.setLang('es'); } catch(_) {}
+        let _editMode = false, _eraseMode = false;
+
+        function _enableLayerEditing(layer) {
+            try { layer.pm.enable({ allowSelfIntersection: true }); } catch(_) {}
+            try { layer.pm.enableLayerDrag(); } catch(_) {}   // arrastrar la figura entera
+        }
+        function _disableLayerEditing(layer) {
+            try { layer.pm.disableLayerDrag(); } catch(_) {}
+            try { layer.pm.disable(); } catch(_) {}
+        }
+
+        function _wireLayerEdit(layer, element) {
+            const save = () => _putElement(element.id, element.name, _layerToResource(layer, element));
+            layer.on('pm:edit',    save);   // mover vértices / redimensionar círculo
+            layer.on('pm:dragend', save);   // arrastrar la figura entera
+            layer.on('click', () => {
+                if (_eraseMode) deleteMapElement(element.id);
+                else _selectedElementId = element.id;   // para recolorear con la paleta
+            });
+            if (_editMode) _enableLayerEditing(layer);
+        }
+        window._wireLayerEdit = _wireLayerEdit;
+
+        function toggleEditMode() {
+            _eraseMode = false; document.getElementById('draw-tool-erase')?.classList.remove('active');
+            map.getContainer().style.cursor = '';
+            _editMode = !_editMode;
+            setDrawMode(null);
+            document.getElementById('draw-tool-edit')?.classList.toggle('active', _editMode);
+            Object.values(_mapElementMarkers).forEach(l => _editMode ? _enableLayerEditing(l) : _disableLayerEditing(l));
+            const hint = document.getElementById('draw-hint');
+            if (hint) hint.textContent = _editMode
+                ? 'Edición ON: arrastra una figura o sus vértices · click + color para recolorear.'
+                : '';
+        }
+        window.toggleEditMode = toggleEditMode;
+
+        function toggleEraseMode() {
+            if (_editMode) { _editMode = false; document.getElementById('draw-tool-edit')?.classList.remove('active');
+                             Object.values(_mapElementMarkers).forEach(_disableLayerEditing); }
+            _eraseMode = !_eraseMode;
+            setDrawMode(null);
+            document.getElementById('draw-tool-erase')?.classList.toggle('active', _eraseMode);
+            map.getContainer().style.cursor = _eraseMode ? 'crosshair' : '';
+            const hint = document.getElementById('draw-hint');
+            if (hint) hint.textContent = _eraseMode ? 'Borrado ON: click en un elemento para eliminarlo.' : '';
+        }
+        window.toggleEraseMode = toggleEraseMode;
 
         function openDrcPanel() {
             drcPanelOpen = true;

@@ -77,6 +77,12 @@ public interface IAdminDataService
     void SetDeviceSubtypeCode(string sn, int subtypeCode);
     int GetDeviceSubtypeCode(string sn);
     void RefreshDeviceStatus(string sn, int batteryPercent, int modeCode);
+    /// <summary>Registra/refresca una aeronave en cuanto envía OSD propio, aunque no tenga fix GPS
+    /// (antes solo se registraba con posición válida → drones en tierra no aparecían).</summary>
+    void RegisterAircraftFromOsd(string sn, int batteryPercent, int gpsNumber, int modeCode);
+    /// <summary>True si la aeronave está registrada, online y envió OSD propio hace poco (≤30s).
+    /// Sirve para no reetiquetar el OSD del mando bajo un dron apagado (dron fantasma).</summary>
+    bool IsAircraftActive(string sn);
     void SetDeviceClientIp(string sn, string clientIp);
     void SetHmsCodes(string sn, List<HmsCodeDto> codes);
     List<HmsCodeDto>? GetHmsCodes(string sn);
@@ -370,6 +376,29 @@ public class AdminDataService : IAdminDataService
             if (batteryPercent >= 0) dev.BatteryPercent = batteryPercent;
             if (modeCode >= 0) dev.ModeCode = modeCode;
         }
+    }
+
+    public void RegisterAircraftFromOsd(string sn, int batteryPercent, int gpsNumber, int modeCode)
+    {
+        if (string.IsNullOrEmpty(sn) || IsGateway(sn)) return; // nunca registrar un mando como dron
+        var dev = _devices.GetOrAdd(sn, key => new DeviceStatusDto { Sn = key, DeviceType = "Dron", IsOnline = true });
+        lock (dev)
+        {
+            // Solo fijar tipo si aún no se conoce (no pisar "Dock" u otra etiqueta ya asignada)
+            if (string.IsNullOrEmpty(dev.DeviceType) || dev.DeviceType == "Dron/Dock") dev.DeviceType = "Dron";
+            dev.IsOnline = true;
+            dev.LastSeen = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (batteryPercent >= 0) dev.BatteryPercent = batteryPercent;
+            if (gpsNumber     >= 0) dev.GpsNumber      = gpsNumber;
+            if (modeCode      >= 0) dev.ModeCode       = modeCode;
+        }
+    }
+
+    public bool IsAircraftActive(string sn)
+    {
+        if (string.IsNullOrEmpty(sn) || !_devices.TryGetValue(sn, out var dev)) return false;
+        lock (dev)
+            return dev.IsOnline && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - dev.LastSeen) < 30000;
     }
 
     public void SetDeviceClientIp(string sn, string clientIp)

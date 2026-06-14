@@ -47,6 +47,12 @@ public class ElementGroup
     [JsonProperty("is_lock")]
     public bool IsLock { get; set; } = false;
 
+    // Estado distribuido (seed oficial: is_distributed=1). Solo los grupos con
+    // is_distributed=true se muestran/sincronizan en el mapa de Pilot. CRÍTICO para
+    // que el RC suba en tiempo real (con la capa type-2 distribuida de UUID real).
+    [JsonProperty("is_distributed")]
+    public bool IsDistributed { get; set; } = true;
+
     [JsonProperty("create_time")]
     public long CreateTime { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }

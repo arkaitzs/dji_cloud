@@ -953,7 +953,11 @@ app.UseMqttServer(server => {
                         // para que el estado aparezca bajo el SN correcto en el mapa
                         string effectiveSn = sn;
                         var pairedAircraft = adminData.GetAircraftForGateway(sn);
-                        if (isGatewaySn && pairedAircraft is not null)
+                        // Solo reetiquetar el OSD del mando bajo el SN del dron si ese dron está
+                        // realmente ACTIVO (envió OSD propio hace poco). Si está apagado, dejar el
+                        // OSD bajo el SN del mando (deviceType=144 → el frontend lo ignora) para no
+                        // crear un "dron fantasma" en el contador ni en el mapa.
+                        if (isGatewaySn && pairedAircraft is not null && adminData.IsAircraftActive(pairedAircraft))
                             effectiveSn = pairedAircraft;
 
                         // ── Corrección de GPS fix para cualquier dispositivo ─────────────────────
@@ -983,6 +987,10 @@ app.UseMqttServer(server => {
                         // Refrescar LastSeen y batería del RC/gateway (no manda lat/lon propio)
                         if (isGatewaySn)
                             adminData.RefreshDeviceStatus(sn, batteryPercent, modeCode);
+                        else
+                            // Aeronave enviando su PROPIO OSD: registrarla/refrescarla aunque no
+                            // tenga fix GPS, para que aparezca en el dashboard y cuente como activa.
+                            adminData.RegisterAircraftFromOsd(sn, batteryPercent, gpsCountStatus, modeCode);
 
                         // ── POSICIÓN — solo cuando hay fix GPS válido ─────────────────────────
                         if (dataElement.TryGetProperty("latitude", out var lat) &&
@@ -1455,8 +1463,12 @@ app.Use(async (context, next) =>
                     // #2.9: cancelable en el shutdown de la aplicación
                     await Task.Delay(800, app.Lifetime.ApplicationStopping);
                     var mapNotifier = context.RequestServices.GetRequiredService<IMapSyncNotifier>();
-                    await mapNotifier.NotifyGroupRefreshAsync(new[] { "00000000-0000-0000-0000-000000000000" });
-                    app.Logger.LogInformation("[WebSocket] map_group_refresh (App Shared) enviado al reconectar mando.");
+                    // Al conectar el mando, refrescar TODOS los grupos reales para que re-descargue
+                    // los elementos del servidor y dibuje los que le falten (primera conexión incluida).
+                    var mapData  = context.RequestServices.GetRequiredService<IMapDataService>();
+                    var groupIds = mapData.GetGroups().Select(g => g.Id).ToArray();
+                    await mapNotifier.NotifyGroupRefreshAsync(groupIds);
+                    app.Logger.LogInformation("[WebSocket] map_group_refresh ({Count} grupos) enviado al conectar mando.", groupIds.Length);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1757,6 +1769,49 @@ _ = Task.Run(async () =>
         }
 
         try { await Task.Delay(3000, _probeAppCt); }
+        catch (OperationCanceledException) { return; }
+    }
+});
+
+// ─── Emisor TSA periódico (conciencia situacional ENTRE mandos) ─────────────
+// Difunde device_osd de TODOS los dispositivos online con posición conocida
+// (aeronaves + mandos) a todos los mandos del workspace, cada 2 s.
+// CLAVE: desacoplado del OSD instantáneo. La posición de los MANDOS no se compartía
+// porque su propio OSD reporta lat/lon=0; aquí usamos la última posición conocida del
+// store, así cada mando ve en su mapa de situación a los demás mandos y aeronaves.
+var _tsaAppCt = app.Lifetime.ApplicationStopping;
+_ = Task.Run(async () =>
+{
+    try { await Task.Delay(4000, _tsaAppCt); }
+    catch (OperationCanceledException) { return; }
+
+    while (!_tsaAppCt.IsCancellationRequested)
+    {
+        try
+        {
+            var adminSvc = app.Services.GetRequiredService<IAdminDataService>();
+            var tsaNotif = app.Services.GetRequiredService<IMapSyncNotifier>();
+
+            foreach (var dev in adminSvc.GetDevices())
+            {
+                if (!dev.IsOnline) continue;
+                if (dev.DeviceType is "Cliente MQTT") continue;
+                // Solo difundir si hay posición real (lat/lon != 0,0)
+                if (dev.Latitude == 0.0 && dev.Longitude == 0.0) continue;
+
+                await tsaNotif.NotifyDeviceOsdAsync(
+                    dev.Sn,
+                    dev.Latitude, dev.Longitude, dev.Altitude,
+                    dev.Heading, dev.Elevation,
+                    dev.HorizontalSpeed, dev.VerticalSpeed);
+            }
+        }
+        catch (Exception ex)
+        {
+            app.Logger.LogDebug(ex, "[TSA] Error en bucle de difusión de posiciones");
+        }
+
+        try { await Task.Delay(2000, _tsaAppCt); }
         catch (OperationCanceledException) { return; }
     }
 });

@@ -10,8 +10,15 @@ la nube de DJI.
   batería, GPS, gimbal), dibujo de elementos y zonas.
 - **Streaming de vídeo en vivo** del dron en el mapa web (DRC / HLS), con la cámara
   seleccionada según la capacidad del aparato (`live_capacity`).
-- **Sincronización de elementos de mapa Web → mando** DJI Pilot 2 (puntos, líneas,
-  polígonos). _La sincronización en tiempo real mando → Web está en fase de pruebas._
+- **Sincronización BIDIRECCIONAL de elementos de mapa en TIEMPO REAL** entre la web
+  y los mandos DJI Pilot 2 (Web ↔ mando ↔ mando). Dibuja en el mando y aparece al
+  instante en la web y en los demás mandos, y viceversa. _(Resuelto en v0.03: la
+  capa "Pilot Share Layer" debe tener UUID real + `is_distributed=1`, como el seed
+  oficial de DJI — el zero-UUID hacía que Pilot solo subiera en batch.)_
+- **Dibujo y edición de elementos desde la web** (`map.html`): puntos, líneas,
+  polígonos y círculos; edición interactiva (arrastrar la figura, mover vértices,
+  redimensionar el círculo — vía Leaflet-Geoman), paleta de colores DJI, y borrado.
+  Todo se propaga a los mandos en tiempo real.
 - **Planificador de rutas WPML** (botón "Ruta"): genera misiones `.kmz` para
   cualquier modelo de dron (M3T/M3E/M3M, M4T/M4E, M30/M30T, M350…), con acciones
   de cámara (foto, orientación de gimbal, hover) por waypoint.
@@ -95,5 +102,21 @@ sc.exe start DjiCloudServer
 
 ## Versión
 
-**v0.1.0** — primera versión instalable: sincronización RC↔Web de elementos de
-mapa, rutas WPML con acciones de cámara, telemetría en vivo.
+### v0.03 (actual)
+Sincronización de elementos de mapa **bidireccional y en tiempo real** RC ↔ Web ↔ RC,
+y **edición completa** desde la web.
+
+- **Fix raíz de la sincronización:** la capa Pilot Share Layer ahora usa **UUID real**
+  (`e3dea0f5-…-3228060`) + `is_distributed=1`, como el servidor oficial de DJI. Con el
+  zero-UUID anterior, Pilot trataba la capa como local y solo subía en batch al
+  reconectar. Verificado contra el servidor oficial: ahora sube/baja al instante.
+- **Dibujo web:** punto, línea, polígono y círculo, con paleta de colores DJI.
+- **Edición interactiva** (Leaflet-Geoman): arrastrar figuras, mover vértices,
+  redimensionar círculos, recolorear y borrar — todo se propaga a los mandos.
+- **TSA:** distribución periódica de posiciones (aeronaves + mandos) entre mandos.
+- **Multi-vista de vídeo** (`/multiview.html`): varias cámaras a la vez.
+- El mando re-descarga todos los elementos del servidor al conectar (incl. 1ª vez).
+
+### v0.1.0
+Primera versión instalable: sincronización RC↔Web de elementos de mapa (Web→RC),
+rutas WPML con acciones de cámara, telemetría y vídeo en vivo, panel de administración.

@@ -37,6 +37,7 @@ public class ConfigController : ControllerBase
             AppId = _options.AppId,
             AppKey = _options.AppKey,
             License = _options.License,
+            WorkspaceId = _options.WorkspaceId,
             Mqtt = new
             {
                 Host = mqttHost,

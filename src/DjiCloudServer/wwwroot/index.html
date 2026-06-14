@@ -871,10 +871,10 @@
             printLog("¡Conexión MQTT verificada con éxito!", 'success');
             
             try {
-                const workspaceId = "e3dea0f5-37f2-4d79-ae58-490af3228069";
+                const workspaceId = serverConfig.workspaceId || serverConfig.WorkspaceId || "e3dea0f5-37f2-4d79-ae58-490af3228069";
                 
                 // 1. Establecer Workspace ID e Información de Plataforma (AHORA que estamos conectados)
-                printLog("Estableciendo Workspace ID...", 'info');
+                printLog(`Estableciendo Workspace ID: ${workspaceId}...`, 'info');
                 const wsRes = window.djiBridge.platformSetWorkspaceId(workspaceId);
                 const wsOk = logBridgeResult("platformSetWorkspaceId", wsRes);
                 
@@ -893,28 +893,67 @@
                     printLog("⚠️ Algunos parámetros de sesión no pudieron registrarse. Revisa los errores anteriores.", 'warn');
                 }
 
-                // 4. Cargar módulo de elementos de mapa (requiere workspace + ws + api ya configurados)
-                // Spec (59 Pilot Cloud JSBridge.md §Map Module):
-                //   userName      — nombre del creador que aparece en cada elemento creado
-                //   elementPreName — prefijo del nombre auto-generado por Pilot 2 (DEBE ser no-vacío)
-                // CRÍTICO: elementPreName vacío ("") puede impedir que el módulo se inicialice.
+                // 4. Cargar módulo MAP — CRÍTICO: solo DESPUÉS de que la conexión WS
+                // esté CONFIRMADA. Spec doc 40 (diagrama de secuencia):
+                //   Load api → Load ws → Connect Websocket → CONNECTED → Setup workspace → Load MAP.
+                // Si el MAP se carga antes de que el WS esté conectado, Pilot 2 permite
+                // dibujar localmente (caché) pero NO habilita la sincronización de SUBIDA
+                // en tiempo real — solo sube al reconectar. Por eso esperamos a
+                // wsGetConnectState() en vez de cargar en el callback de MQTT directamente.
+                //   userName      — nombre del creador de cada elemento.
+                //   elementPreName — prefijo del nombre auto-generado (DEBE ser no-vacío).
                 const mapOperator = document.getElementById('mqtt-user')?.value || "Operador";
                 const mapPreName  = mapOperator || "GCS";
-                const mapParam = JSON.stringify({ userName: mapOperator, elementPreName: mapPreName });
-                printLog(`Cargando módulo de Elementos de Mapa (userName=${mapOperator}, elementPreName=${mapPreName})...`, 'info');
-                const mapRes = window.djiBridge.platformLoadComponent("map", mapParam);
-                logBridgeResult("Componente 'map'", mapRes);
+                // enableSync/workspaceId NO están documentados en el param oficial del map
+                // module, pero los añadimos como prueba: algunos firmwares pueden requerir
+                // un flag explícito para habilitar la subida RC→servidor (en vez de solo caché).
+                const mapParam = JSON.stringify({
+                    userName: mapOperator,
+                    elementPreName: mapPreName,
+                    enableSync: true,
+                    workspaceId: workspaceId
+                });
 
-                // 5. Cargar módulo TSA (Situational Awareness) — spec doc 59 §TSA Module.
-                // Requiere los módulos cloud (thing) y ws ya cargados. Param: "{}" literal.
-                // Con TSA activo, el RC llama a GET /manage/api/v1/.../devices/topologies
-                // y muestra los demás drones del workspace en su mapa (push device_osd).
-                printLog("Cargando módulo TSA (Situational Awareness)...", 'info');
-                const tsaRes = window.djiBridge.platformLoadComponent("tsa", "{}");
-                logBridgeResult("Componente 'tsa'", tsaRes);
+                let mapLoadAttempts = 0;
+                const loadMapWhenWsReady = () => {
+                    let wsUp = false;
+                    try {
+                        const st = window.djiBridge.wsGetConnectState && window.djiBridge.wsGetConnectState();
+                        const p  = typeof st === 'string' ? JSON.parse(st) : st;
+                        wsUp = p === true
+                            || (p && (p.data === true || p.data === "true"))
+                            || (p && p.code === 0 && (p.data === true || p.data === "true"))
+                            || (p && (p.state === true || p.status === true));
+                    } catch (_) { wsUp = false; }
 
-                // 6. Vigilar la salud del canal WS (wsGetConnectState cada 10s)
-                startWsStateMonitor();
+                    mapLoadAttempts++;
+                    if (wsUp || mapLoadAttempts >= 20) {   // ~6s de margen como fallback
+                        printLog(wsUp
+                            ? "✓ WS confirmado conectado — esperando 2s de margen antes de cargar MAP..."
+                            : "⚠ WS no confirmado tras esperar; cargando MAP igualmente (fallback).",
+                            wsUp ? 'success' : 'warn');
+                        // DELAY de 1s tras confirmar WS antes de cargar MAP: varios
+                        // implementadores reportan que sin este respiro Pilot 2 activa el
+                        // mapa local pero deja la SUBIDA en modo caché. Damos margen a que
+                        // el canal WS se estabilice del todo antes de inicializar el módulo.
+                        setTimeout(() => {
+                            printLog("Cargando módulo MAP ahora...", 'info');
+                            const mapRes = window.djiBridge.platformLoadComponent("map", mapParam);
+                            logBridgeResult("Componente 'map'", mapRes);
+
+                            // 5. TSA (spec doc 59) — requiere cloud + ws ya cargados.
+                            const tsaRes = window.djiBridge.platformLoadComponent("tsa", "{}");
+                            logBridgeResult("Componente 'tsa'", tsaRes);
+
+                            // 6. Vigilar la salud del canal WS (wsGetConnectState cada 10s)
+                            startWsStateMonitor();
+                        }, 2000);
+                    } else {
+                        setTimeout(loadMapWhenWsReady, 300);
+                    }
+                };
+                printLog(`Esperando confirmación WS para cargar MAP (userName=${mapOperator}, elementPreName=${mapPreName})...`, 'info');
+                loadMapWhenWsReady();
             } catch (err) {
                 printLog(`Error al registrar propiedades de la sesión: ${err.message}`, 'danger');
             }

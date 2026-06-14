@@ -69,10 +69,16 @@ public class SituationAwarenessController : ControllerBase
                 var acSubType  = _admin.GetDeviceSubtypeCode(gw.AircraftSn);
                 var acModelKey = BuildModelKey(domain: 0, type: acTypeCode > 0 ? acTypeCode : 0, subType: acSubType);
 
+                // online_status real: la aeronave está online si el flag del gateway lo dice
+                // O si ha enviado su propio OSD hace poco (IsAircraftActive). Antes salía
+                // siempre false aunque el dron estuviera transmitiendo (53%, sats…), lo que
+                // dejaba la topología incoherente en el mando.
+                var acOnline = gw.AircraftOnline || _admin.IsAircraftActive(gw.AircraftSn);
+
                 hosts.Add(new
                 {
                     sn              = gw.AircraftSn,
-                    online_status   = gw.AircraftOnline,
+                    online_status   = acOnline,
                     device_callsign = gw.AircraftSn,
                     user_id         = "pilot",
                     user_callsign   = gw.GatewaySn,

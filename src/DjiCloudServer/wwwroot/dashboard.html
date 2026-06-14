@@ -1020,12 +1020,18 @@
                 
                 // Formatear Batería
                 let batteryHtml = '-';
-                if (dev.deviceType !== 'Cliente MQTT') {
-                    const bat = dev.batteryPercent !== undefined ? dev.batteryPercent : 100;
+                const bat = dev.batteryPercent !== undefined ? dev.batteryPercent : 100;
+                // Algunos mandos (p.ej. RC type 174) NO reportan su batería por Cloud API:
+                // envían capacity_percent=0 siempre. Un mando online no está físicamente al 0%,
+                // así que mostramos "—" (sin dato) en vez de un engañoso "0%".
+                const batteryUnknown = dev.deviceType === 'Mando' && bat <= 0;
+                if (dev.deviceType !== 'Cliente MQTT' && batteryUnknown) {
+                    batteryHtml = '<span style="color: var(--text-muted); font-weight:500;" title="Este mando no reporta su batería por Cloud API">—</span>';
+                } else if (dev.deviceType !== 'Cliente MQTT') {
                     let batteryColor = '#10b981'; // verde
                     if (bat < 20) batteryColor = '#ef4444'; // rojo
                     else if (bat < 50) batteryColor = '#f59e0b'; // naranja
-                    
+
                     batteryHtml = `
                         <div style="display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-weight:700; color:${batteryColor}">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(90deg);"><rect x="1" y="6" width="18" height="12" rx="2" ry="2"></rect><line x1="23" y1="11" x2="23" y2="13"></line></svg>
