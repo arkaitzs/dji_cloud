@@ -102,7 +102,21 @@ sc.exe start DjiCloudServer
 
 ## Versión
 
-### v0.03 (actual)
+### v0.04 (actual)
+Herramientas de terreno y análisis sobre el mapa + mejoras de UI.
+
+- **Huella de cámara con terreno (DEM)**: ray-march de las esquinas y del eje óptico
+  contra el modelo de elevación (intersección real, no suelo plano).
+- **Selector de MDE**: AWS Terrarium (global ~30 m), IGN MDT05 local (5 m, offline),
+  Terrain-RGB local — con precisión (zoom) configurable.
+- **Medición + perfil del terreno** entre N puntos (distancia, desnivel, gráfico).
+- **Análisis de visibilidad (viewshed)**: qué se ve desde una posición a una altura,
+  en un radio (con curvatura + refracción).
+- **UI**: paneles arrastrables y redimensionables, z-order de elementos (pequeños
+  delante), scrollbars con tema oscuro, más capas ráster (OSM, OpenTopoMap, IGN).
+- 📄 `docs/MIGRACION_SQLEXPRESS.md`: plan vivo para migrar la persistencia a SQL Express.
+
+### v0.03
 Sincronización de elementos de mapa **bidireccional y en tiempo real** RC ↔ Web ↔ RC,
 y **edición completa** desde la web.
 

@@ -4,6 +4,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
+using System;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace DjiCloudServer.Controllers;
 
@@ -20,6 +26,42 @@ public class WebMapController : ControllerBase
     private readonly IDjiWebSocketManager _wsManager;
     // #1.7: refresh de compatibilidad para Pilot 2 v17 (configurable en appsettings)
     private readonly bool _legacyGroupRefresh;
+
+    private static readonly HttpClient _adsbHttpClient;
+
+    static WebMapController()
+    {
+        var handler = new SocketsHttpHandler
+        {
+            ConnectCallback = async (context, cancellationToken) =>
+            {
+                var host = context.DnsEndPoint.Host;
+                var port = context.DnsEndPoint.Port;
+                var addresses = await Dns.GetHostAddressesAsync(host, AddressFamily.InterNetwork, cancellationToken);
+                var ip = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) 
+                         ?? throw new SocketException((int)SocketError.HostNotFound);
+                         
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                socket.NoDelay = true;
+                try
+                {
+                    await socket.ConnectAsync(new IPEndPoint(ip, port), cancellationToken);
+                    return new NetworkStream(socket, ownsSocket: true);
+                }
+                catch
+                {
+                    socket.Dispose();
+                    throw;
+                }
+            },
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+        };
+        _adsbHttpClient = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+        _adsbHttpClient.DefaultRequestHeaders.Add("User-Agent", "DjiCloudServer/1.0");
+    }
 
     public WebMapController(
         IMapDataService mapData,
@@ -311,5 +353,82 @@ public class WebMapController : ControllerBase
             if (dist < bestDist) { bestDist = dist; best = pHex; }
         }
         return best;
+    }
+
+    // GET /api/web-map/adsb/traffic?lat=...&lng=...&range=...
+    [HttpGet("adsb/traffic")]
+    public async Task<IActionResult> GetAdsbTraffic([FromQuery] double lat, [FromQuery] double lng, [FromQuery] int range = 50)
+    {
+        try
+        {
+            HttpResponseMessage? response = null;
+            string? errorMsg = null;
+
+            // Limitar el rango entre 10 y 250 NM (límite de la API)
+            var clampedRange = Math.Clamp(range, 10, 250);
+
+            var sLat = lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var sLng = lng.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            // 1. Intentar con adsb.lol
+            try
+            {
+                var url = $"https://api.adsb.lol/v2/point/{sLat}/{sLng}/{clampedRange}";
+                var res = await _adsbHttpClient.GetAsync(url);
+                if (res.IsSuccessStatusCode)
+                {
+                    response = res;
+                }
+                else
+                {
+                    errorMsg = $"adsb.lol devolvió código de estado {(int)res.StatusCode} ({res.StatusCode})";
+                    Console.WriteLine($"[ADS-B] {errorMsg}");
+                }
+            }
+            catch (Exception ex)
+            {
+                errorMsg = $"Error consultando adsb.lol: {ex.Message}";
+                Console.WriteLine($"[ADS-B] {errorMsg}");
+            }
+
+            // 2. Si falló adsb.lol, intentar con adsb.one como fallback
+            if (response == null)
+            {
+                Console.WriteLine("[ADS-B] Probando fallback a adsb.one...");
+                try
+                {
+                    var altUrl = $"https://api.adsb.one/v2/point/{sLat}/{sLng}/{clampedRange}";
+                    var res = await _adsbHttpClient.GetAsync(altUrl);
+                    if (res.IsSuccessStatusCode)
+                    {
+                        response = res;
+                    }
+                    else
+                    {
+                        errorMsg += $" | adsb.one devolvió {(int)res.StatusCode} ({res.StatusCode})";
+                        Console.WriteLine($"[ADS-B] {errorMsg}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    errorMsg += $" | Error en adsb.one: {ex.Message}";
+                    Console.WriteLine($"[ADS-B] {errorMsg}");
+                }
+            }
+
+            if (response != null && response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                return Content(content, "application/json");
+            }
+
+            var finalStatus = response != null ? (int)response.StatusCode : 502;
+            return StatusCode(finalStatus, new { success = false, error = errorMsg ?? "Failed to fetch ADS-B data from remote servers" });
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ADS-B] Excepción crítica: {ex}");
+            return StatusCode(500, new { success = false, error = ex.Message });
+        }
     }
 }

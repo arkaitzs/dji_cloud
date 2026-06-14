@@ -47,10 +47,64 @@
             --accent-danger: #ef4444;
         }
 
+        html {
+            color-scheme: dark;
+        }
+
+        /* Styling scrollbars globally for a premium dark theme matching the page */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(10, 11, 16, 0.3);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.35);
+            border-radius: 3px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(6, 182, 212, 0.55);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(99, 102, 241, 0.35) rgba(10, 11, 16, 0.3);
+        }
+
+        select, option {
+            background-color: #0f111a !important;
+            color: var(--text-main) !important;
+            color-scheme: dark !important;
+        }
+
+        /* ADS-B flight markers */
+        .adsb-plane-label {
+            position: absolute;
+            top: 22px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 11, 16, 0.85);
+            color: #fff;
+            font-size: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: bold;
+            padding: 1px 3px;
+            border-radius: 4px;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            border: 1px solid transparent;
+            z-index: 1000;
+        }
+        .custom-adsb-plane-marker {
+            background: none !important;
+            border: none !important;
         }
 
         body, html {
@@ -761,6 +815,14 @@
             flex-shrink: 0;
         }
 
+        /* ── Scrollbars con tema oscuro (global) ── */
+        * { scrollbar-width: thin; scrollbar-color: rgba(99,102,241,0.45) transparent; }
+        ::-webkit-scrollbar { width: 9px; height: 9px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+        ::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.7); background-clip: padding-box; }
+        ::-webkit-scrollbar-corner { background: transparent; }
+
         .klv-section::-webkit-scrollbar { width: 4px; }
         .klv-section::-webkit-scrollbar-track { background: transparent; }
         .klv-section::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 2px; }
@@ -1185,6 +1247,68 @@
             flex-shrink: 0;
         }
 
+        /* ── Panel Listado Aviones ADS-B ─────────────────────────────────── */
+        #adsb-list-panel {
+            position: absolute;
+            z-index: 2000;
+            top: 150px;
+            left: 80px;
+            width: 520px;
+            height: 380px;
+            display: none;
+            flex-direction: column;
+            background: var(--panel-bg);
+            border: 1px solid rgba(251, 113, 133, 0.35);
+            border-radius: 20px;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(251,113,133,0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+            overflow: hidden;
+            animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        #adsb-list-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 13px 18px;
+            background: rgba(251, 113, 133, 0.08);
+            cursor: move;
+            border-bottom: 1px solid rgba(251,113,133,0.2);
+            user-select: none;
+            flex-shrink: 0;
+        }
+        
+        .osint-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .osint-btn:hover {
+            transform: translateY(-1px);
+            filter: brightness(1.2);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+        .osint-fr24 { background: #eedd00; color: #000; border-color: #eedd00; }
+        .osint-rb { background: #00875a; color: #fff; border-color: #00875a; }
+        .osint-ps { background: #1f3a52; color: #fff; border-color: #3b82f6; }
+        .osint-ax { background: #eab308; color: #000; border-color: #eab308; }
+        .osint-btn.osint-disabled {
+            opacity: 0.25;
+            pointer-events: none;
+            cursor: default;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-muted);
+            border-color: rgba(255,255,255,0.05);
+        }
+
         /* ── Panel DRC ────────────────────────────────────────────────────── */
         #drc-panel {
             position: absolute;
@@ -1201,8 +1325,10 @@
             -webkit-backdrop-filter: blur(20px);
             box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(168,85,247,0.1), inset 0 1px 0 rgba(255,255,255,0.05);
             overflow: hidden;
-            animation: slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            /* Fade sin transform (slide-in-right hacía SALTAR el panel al arrastrarlo) */
+            animation: drc-fade-in 0.25s ease;
         }
+        @keyframes drc-fade-in { from { opacity: 0; } to { opacity: 1; } }
         #drc-panel-header {
             display: flex;
             align-items: center;
@@ -1498,8 +1624,12 @@
             </button>
             <div class="map-dropdown-content">
                 <button id="layer-btn-dark" class="layer-dropdown-item active" onclick="switchBaseLayer('dark')">Oscuro</button>
+                <button id="layer-btn-light" class="layer-dropdown-item" onclick="switchBaseLayer('light')">Claro</button>
+                <button id="layer-btn-osm" class="layer-dropdown-item" onclick="switchBaseLayer('osm')">OpenStreetMap</button>
+                <button id="layer-btn-otm" class="layer-dropdown-item" onclick="switchBaseLayer('otm')">OpenTopoMap</button>
                 <button id="layer-btn-esri" class="layer-dropdown-item" onclick="switchBaseLayer('esri')">Satélite Esri</button>
                 <button id="layer-btn-google" class="layer-dropdown-item" onclick="switchBaseLayer('google')">Google Sat</button>
+                <button id="layer-btn-ign" class="layer-dropdown-item" onclick="switchBaseLayer('ign')">IGN Mapa Ráster</button>
             </div>
         </div>
         <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
@@ -1520,6 +1650,26 @@
         <button class="layer-btn" onclick="openFlightsPanel()" style="color:var(--accent-purple);">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             Vuelos
+        </button>
+        <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
+        <button class="layer-btn" id="measure-toolbar-btn" onclick="toggleMeasureMode()" style="color:#fbbf24;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M2 12h20"></path><path d="M5 9v6M9 10v4M13 9v6M17 10v4M21 9v6"></path></svg>
+            Medir
+        </button>
+        <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
+        <button class="layer-btn" id="viewshed-toolbar-btn" onclick="toggleViewshedMode()" style="color:#34d399;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:4px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            Visibilidad
+        </button>
+        <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
+        <button class="layer-btn" id="adsb-toolbar-btn" onclick="toggleAdsbMode()" style="color:#fb7185;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z"/></svg>
+            Tráfico Aéreo
+        </button>
+        <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
+        <button class="layer-btn" id="adsb-list-btn" onclick="toggleAdsbListPanel()" style="color:#fb7185;">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+            Listado Aviones
         </button>
         <div style="width:1px; height:20px; background:var(--panel-border); margin:0 2px;"></div>
         <button class="layer-btn" id="drc-toolbar-btn" onclick="openDrcPanel()" style="color:#d8b4fe; position:relative;">
@@ -1548,8 +1698,73 @@
     <div id="drc-toast-container"></div>
 
     <!-- ── Panel de Elementos de Mapa ────────────────────────────────────── -->
+    <!-- Panel de visibilidad (viewshed) + selector de MDE -->
+    <div id="viewshed-panel" style="display:none; position:absolute; top:70px; left:24px; z-index:1001; width:280px; background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:14px; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:0 12px 40px rgba(0,0,0,0.5); overflow:hidden;">
+        <div id="viewshed-panel-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--panel-border); cursor:move; user-select:none;">
+            <span style="font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#34d399;">👁 Visibilidad</span>
+            <button onclick="toggleViewshedMode()" style="font-size:11px;padding:3px 9px;background:rgba(255,255,255,0.06);border:1px solid var(--panel-border);color:var(--text-muted);border-radius:5px;cursor:pointer;">Cerrar</button>
+        </div>
+        <div style="padding:12px 14px; display:flex; flex-direction:column; gap:9px; font-size:12px;">
+            <label style="display:flex; flex-direction:column; gap:3px; color:var(--text-muted);">Modelo de elevación (MDE)
+                <select id="vs-dem-src" onchange="onDemConfigChange()" style="background:rgba(255,255,255,0.05);border:1px solid var(--panel-border);color:var(--text-main);border-radius:6px;padding:5px;"></select>
+            </label>
+            <label style="display:flex; flex-direction:column; gap:3px; color:var(--text-muted);">Precisión (zoom de tiles)
+                <select id="vs-dem-zoom" onchange="onDemConfigChange()" style="background:rgba(255,255,255,0.05);border:1px solid var(--panel-border);color:var(--text-main);border-radius:6px;padding:5px;"></select>
+            </label>
+            <div style="display:flex; gap:8px;">
+                <label style="flex:1; display:flex; flex-direction:column; gap:3px; color:var(--text-muted);">Altura obs. (m)
+                    <input id="vs-height" type="number" value="50" min="1" style="background:rgba(255,255,255,0.05);border:1px solid var(--panel-border);color:var(--text-main);border-radius:6px;padding:5px;">
+                </label>
+                <label style="flex:1; display:flex; flex-direction:column; gap:3px; color:var(--text-muted);">Radio (m)
+                    <input id="vs-radius" type="number" value="2000" min="100" step="100" style="background:rgba(255,255,255,0.05);border:1px solid var(--panel-border);color:var(--text-main);border-radius:6px;padding:5px;">
+                </label>
+            </div>
+            <div id="vs-hint" style="font-size:11px; color:#34d399;">Click en el mapa para colocar el observador.</div>
+            <div style="display:flex; flex-direction:column; gap:4px; margin-top: 2px;">
+                <span style="color:var(--text-muted); font-size:11px;">Color de zona visible:</span>
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom: 6px;">
+                    <div class="vs-palette-sw active" style="background:#10b981; width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid #fff; box-shadow:0 0 5px rgba(16,185,129,0.5);" onclick="setViewshedColor('#10b981', this)"></div>
+                    <div class="vs-palette-sw" style="background:#06b6d4; width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid transparent;" onclick="setViewshedColor('#06b6d4', this)"></div>
+                    <div class="vs-palette-sw" style="background:#ef4444; width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid transparent;" onclick="setViewshedColor('#ef4444', this)"></div>
+                    <div class="vs-palette-sw" style="background:#eab308; width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid transparent;" onclick="setViewshedColor('#eab308', this)"></div>
+                    <div class="vs-palette-sw" style="background:#a855f7; width:18px; height:18px; border-radius:50%; cursor:pointer; border:2px solid transparent;" onclick="setViewshedColor('#a855f7', this)"></div>
+                </div>
+            </div>
+            <label style="display:flex; flex-direction:column; gap:3px; color:var(--text-muted); margin-bottom: 4px;">
+                <div style="display:flex; justify-content:space-between;">
+                    <span>Opacidad</span>
+                    <span id="vs-opacity-text" style="font-family:'JetBrains Mono',monospace; font-weight:700; color:var(--accent-cyan);">55%</span>
+                </div>
+                <input id="vs-opacity" type="range" min="0.1" max="1.0" step="0.05" value="0.55" oninput="onViewshedOpacityChange(this.value)" style="width:100%; accent-color:var(--accent-cyan); cursor:pointer;">
+            </label>
+            <div style="display:flex; gap:6px; align-items:center; margin-top: 2px;">
+                <span style="font-size:11px;color:var(--text-muted); display:flex; align-items:center; gap:4px;">
+                    <span id="vs-legend-color-dot" style="background:#10b981; width:8px; height:8px; border-radius:50%; display:inline-block; box-shadow:0 0 5px rgba(16,185,129,0.5);"></span> visible &nbsp;&nbsp;
+                    <span style="border:1px solid var(--text-muted); width:8px; height:8px; border-radius:50%; display:inline-block;"></span> oculto
+                </span>
+                <span style="flex:1"></span>
+                <button onclick="clearViewshed()" style="font-size:11px;padding:3px 9px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#f87171;border-radius:5px;cursor:pointer;">Limpiar</button>
+            </div>
+        </div>
+    </div>
+ 
+    <!-- Panel de medición / perfil del terreno -->
+    <div id="measure-panel" style="display:none; position:absolute; bottom:24px; left:50%; transform:translateX(-50%); z-index:1001; width:min(720px,92vw); background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:14px; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:0 12px 40px rgba(0,0,0,0.5); overflow:hidden;">
+        <div id="measure-panel-header" style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--panel-border); cursor:move; user-select:none;">
+            <span style="font-family:'Rajdhani',sans-serif; font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:#fbbf24;">📏 Medición / Perfil del terreno</span>
+            <div style="display:flex; gap:6px;">
+                <button onclick="clearMeasure()" style="font-size:11px;padding:3px 9px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#f87171;border-radius:5px;cursor:pointer;">Limpiar</button>
+                <button onclick="toggleMeasureMode()" style="font-size:11px;padding:3px 9px;background:rgba(255,255,255,0.06);border:1px solid var(--panel-border);color:var(--text-muted);border-radius:5px;cursor:pointer;">Cerrar</button>
+            </div>
+        </div>
+        <div id="measure-stats" style="display:flex; gap:16px; flex-wrap:wrap; padding:8px 14px; font-size:12px; font-family:'JetBrains Mono',monospace; color:var(--text-muted); border-bottom:1px solid var(--panel-border);">
+            Click en el mapa para añadir puntos · doble-click para terminar.
+        </div>
+        <canvas id="measure-canvas" height="170" style="display:block; width:100%; background:rgba(0,0,0,0.25);"></canvas>
+    </div>
+ 
     <div id="map-elements-panel" style="display:none; position:absolute; top:70px; right:24px; z-index:1000; width:300px; background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:0 12px 40px rgba(0,0,0,0.5); overflow:hidden;">
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--panel-border);">
+        <div id="map-elements-panel-header" style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--panel-border); cursor:move; user-select:none;">
             <div style="display:flex; align-items:center; gap:8px;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
                 <span style="font-family:'Rajdhani',sans-serif; font-size:15px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--accent-cyan);">Elementos de Mapa</span>
@@ -1592,6 +1807,42 @@
             <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:13px;">Cargando...</div>
         </div>
         <div id="map-elements-count" style="padding:8px 16px; border-top:1px solid var(--panel-border); font-size:11px; color:var(--text-muted); text-align:right;"></div>
+    </div>
+
+    <!-- ── Panel Listado de Aviones ADS-B ───────────────────────────────── -->
+    <div id="adsb-list-panel">
+        <!-- Cabecera arrastrable -->
+        <div id="adsb-list-panel-header">
+            <div style="display:flex;align-items:center;gap:10px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fb7185" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z"/></svg>
+                <span style="font-family:'Rajdhani',sans-serif;font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#fb7185;">Aviones en Rango</span>
+                <span id="adsb-list-count" style="font-size:9px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;border:1px solid rgba(251,113,133,0.4);border-radius:4px;padding:1px 5px;">0</span>
+            </div>
+            <button onclick="closeAdsbListPanel()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:3px;line-height:0;transition:color 0.2s;" onmouseover="this.style.color='var(--accent-danger)'" onmouseout="this.style.color='var(--text-muted)'">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <!-- Contenedor scrollable -->
+        <div id="adsb-list-container" style="padding:10px 14px;overflow-y:auto;flex-grow:1;max-height:300px;">
+            <table id="adsb-list-table" style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Outfit',sans-serif;color:var(--text-main);">
+                <thead>
+                    <tr style="border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;color:var(--text-muted);font-weight:600;">
+                        <th style="padding:6px 4px;">Ident (Hex)</th>
+                        <th style="padding:6px 4px;">Matrícula</th>
+                        <th style="padding:6px 4px;">Modelo</th>
+                        <th style="padding:6px 4px;text-align:right;">Altitud</th>
+                        <th style="padding:6px 4px;text-align:right;">Vel.</th>
+                        <th style="padding:6px 4px;text-align:right;">Dist. (NM)</th>
+                        <th style="padding:6px 4px;text-align:center;">OSINT</th>
+                    </tr>
+                </thead>
+                <tbody id="adsb-list-body">
+                    <tr>
+                        <td colspan="7" style="text-align:center;padding:20px 0;color:var(--text-muted);">Sin aviones en rango. Activa "Tráfico Aéreo".</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <!-- ── Panel DRC (alta frecuencia 10-30 Hz) ──────────────────────────── -->
@@ -2342,12 +2593,29 @@
                 subdomains: 'abcd',
                 maxZoom: 20
             }),
+            light: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 20
+            }),
+            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                maxZoom: 19
+            }),
+            otm: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
+                maxZoom: 17
+            }),
             esri: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
                 attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
                 maxZoom: 20
             }),
             google: L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
                 attribution: '&copy; Google Maps',
+                maxZoom: 20
+            }),
+            ign: L.tileLayer('https://www.ign.es/wmts/mapa-raster?request=getTile&layer=MTN&TileMatrixSet=GoogleMapsCompatible&TileMatrix={z}&TileCol={x}&TileRow={y}&format=image/jpeg', {
+                attribution: '&copy; Instituto Geográfico Nacional de España',
                 maxZoom: 20
             })
         };
@@ -2378,8 +2646,12 @@
             const activeText = document.getElementById('active-map-text');
             if (activeText) {
                 let label = 'OSCURO';
+                if (key === 'light') label = 'CLARO';
+                if (key === 'osm') label = 'OPENSTREETMAP';
+                if (key === 'otm') label = 'OPENTOPOMAP';
                 if (key === 'esri') label = 'SATÉLITE ESRI';
                 if (key === 'google') label = 'GOOGLE SAT';
+                if (key === 'ign') label = 'IGN RÁSTER';
                 activeText.textContent = `MAPA: ${label}`;
             }
             
@@ -2409,42 +2681,76 @@
             }
         });
 
+        // Leyenda de Altitud en el Mapa con escala dinámica (y colapsable)
+        let legendCollapsed = localStorage.getItem('legend_collapsed') === 'true';
+
+        function updateLegendCollapseState() {
+            const content = document.getElementById('legend-collapsible-content');
+            const inputs = document.getElementById('legend-header-inputs');
+            const chevron = document.getElementById('legend-collapse-chevron');
+            if (content && inputs && chevron) {
+                if (legendCollapsed) {
+                    content.style.display = 'none';
+                    inputs.style.display = 'none';
+                    chevron.style.transform = 'rotate(-90deg)';
+                } else {
+                    content.style.display = 'block';
+                    inputs.style.display = 'flex';
+                    chevron.style.transform = 'rotate(0deg)';
+                }
+            }
+        }
+
+        function toggleLegendCollapse() {
+            legendCollapsed = !legendCollapsed;
+            localStorage.setItem('legend_collapsed', legendCollapsed ? 'true' : 'false');
+            updateLegendCollapseState();
+        }
+
         // Leyenda de Altitud en el Mapa con escala dinámica
         var legend = L.control({ position: 'bottomleft' });
         legend.onAdd = function (map) {
             var div = L.DomUtil.create('div', 'legend');
+            L.DomEvent.disableClickPropagation(div);
+            L.DomEvent.disableScrollPropagation(div);
             div.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 12px;">
-                    <h4 style="margin: 0; font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; color: var(--accent-cyan); letter-spacing: 0.5px;">Altitud de Vuelo</h4>
-                    <div style="display: flex; align-items: center; gap: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 24px;">
+                    <div style="display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;" onclick="toggleLegendCollapse()">
+                        <svg id="legend-collapse-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition: transform 0.2s; transform: rotate(0deg); color: var(--accent-cyan);"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                        <h4 style="margin: 0; font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; color: var(--accent-cyan); letter-spacing: 0.5px;">Altitud de Vuelo</h4>
+                    </div>
+                    <div id="legend-header-inputs" style="display: flex; align-items: center; gap: 6px;">
                         <span style="font-size: 9px; color: var(--text-muted); font-weight: 600;">MAX:</span>
                         <input type="number" id="max-altitude-input" value="120" style="width: 55px; background: rgba(10,11,16,0.8); border: 1px solid var(--panel-border); color: #fff; border-radius: 6px; padding: 2px 4px; font-size: 10px; font-family: 'JetBrains Mono', monospace; text-align: center; font-weight: bold; outline: none; transition: border-color 0.2s;" onfocus="this.style.borderColor='var(--accent-indigo)'" onblur="this.style.borderColor='var(--panel-border)'" />
                         <button onclick="applyMaxAltitude()" style="background: var(--accent-indigo); border: none; color: #fff; border-radius: 6px; padding: 2px 8px; font-size: 10px; cursor: pointer; font-family: 'Outfit', sans-serif; font-weight: 700; transition: all 0.2s;" onmouseover="this.style.background='var(--accent-cyan)'" onmouseout="this.style.background='var(--accent-indigo)'">OK</button>
                     </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
-                    <span style="font-size:9px; color:var(--text-muted); font-weight:600; white-space:nowrap;">REFERENCIA:</span>
-                    <button id="btn-alt-asl"
-                        onclick="setAltRef('ASL')"
-                        title="Altura sobre el nivel del mar (campo 'height' DJI)"
-                        style="flex:1; background:var(--accent-cyan); border:none; color:#000; border-radius:5px; padding:2px 0; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; transition:all 0.2s;">
-                        ASL
-                    </button>
-                    <button id="btn-alt-agl"
-                        onclick="setAltRef('PILOT')"
-                        title="Altura sobre el punto de despegue del piloto (campo 'elevation' DJI)"
-                        style="flex:1; background:rgba(255,255,255,0.06); border:none; color:var(--text-muted); border-radius:5px; padding:2px 0; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; transition:all 0.2s;">
-                        AGL
-                    </button>
-                </div>
-                <div id="legend-ranges-container" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-family: 'Outfit', sans-serif; font-weight: 500;">
-                    <!-- Se rellena dinámicamente -->
+                <div id="legend-collapsible-content">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+                        <span style="font-size:9px; color:var(--text-muted); font-weight:600; white-space:nowrap;">REFERENCIA:</span>
+                        <button id="btn-alt-asl"
+                            onclick="setAltRef('ASL')"
+                            title="Altura sobre el nivel del mar (campo 'height' DJI)"
+                            style="flex:1; background:var(--accent-cyan); border:none; color:#000; border-radius:5px; padding:2px 0; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; transition:all 0.2s;">
+                            ASL
+                        </button>
+                        <button id="btn-alt-agl"
+                            onclick="setAltRef('PILOT')"
+                            title="Altura sobre el punto de despegue del piloto (campo 'elevation' DJI)"
+                            style="flex:1; background:rgba(255,255,255,0.06); border:none; color:var(--text-muted); border-radius:5px; padding:2px 0; font-size:9px; font-weight:700; cursor:pointer; font-family:'Rajdhani',sans-serif; letter-spacing:0.5px; transition:all 0.2s;">
+                            AGL
+                        </button>
+                    </div>
+                    <div id="legend-ranges-container" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; font-family: 'Outfit', sans-serif; font-weight: 500;">
+                        <!-- Se rellena dinámicamente -->
+                    </div>
                 </div>
             `;
             return div;
         };
         legend.addTo(map);
         updateLegendUI();
+        updateLegendCollapseState();
 
         // ── Timeout de offline — debe coincidir con DroneOfflineMs en AdminDataService.cs ──
         // A 0.5 Hz (modo normal OSD) equivale a ~7 paquetes perdidos antes de marcar offline.
@@ -2488,12 +2794,28 @@
         // ── DEM (Modelo Digital de Elevación) vía tiles Terrarium ──────────────────
         // Por defecto usa los Terrain Tiles públicos de AWS (online). Para OFFLINE,
         // genera los tiles del MDT05 del IGN y cambia urlTemplate a '/lib/dem/{z}/{x}/{y}.png'.
+        // Fuentes de MDE seleccionables. encoding: 'terrarium' o 'mapbox' (formato del tile).
+        const DEM_SOURCES = {
+            aws:   { name: 'AWS Terrarium (global ~30 m)', urlTemplate: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png', encoding: 'terrarium', maxZoom: 14, res: '≈30 m (SRTM)' },
+            ign5:  { name: 'IGN MDT05 local (5 m) — offline', urlTemplate: '/lib/dem/{z}/{x}/{y}.png', encoding: 'terrarium', maxZoom: 16, res: '5 m (IGN, requiere tiles)' },
+            local: { name: 'Local Terrain-RGB (Mapbox) — offline', urlTemplate: '/lib/dem/{z}/{x}/{y}.png', encoding: 'mapbox', maxZoom: 16, res: 'según tus tiles' }
+        };
         const DEM = {
             enabled: true,
+            source: 'aws',
             zoom: 13,   // ≈20 m/píxel; sube a 14 (≈10 m) si tienes tiles de más detalle
-            urlTemplate: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+            urlTemplate: DEM_SOURCES.aws.urlTemplate,
+            encoding: DEM_SOURCES.aws.encoding,
             _tiles: {}  // cache 'z/x/y' -> { data: ImageData, size, loading, error }
         };
+        function setDemSource(key, zoom) {
+            const src = DEM_SOURCES[key]; if (!src) return;
+            DEM.source = key; DEM.urlTemplate = src.urlTemplate; DEM.encoding = src.encoding;
+            if (zoom) DEM.zoom = Math.min(zoom, src.maxZoom);
+            DEM._tiles = {};   // limpiar caché al cambiar de fuente
+            if (typeof addLog === 'function') addLog(`MDE: ${src.name} · zoom ${DEM.zoom} (${src.res})`, 'system');
+        }
+        window.setDemSource = setDemSource;
         function _demTileXY(lat, lon, z) {
             const n = Math.pow(2, z);
             const x = (lon + 180) / 360 * n;
@@ -2532,7 +2854,9 @@
             const py = Math.min(s - 1, Math.max(0, Math.floor((t.y - ty) * s)));
             const i = (py * s + px) * 4;
             const R = e.data.data[i], G = e.data.data[i + 1], B = e.data.data[i + 2];
-            return (R * 256 + G + B / 256) - 32768;   // fórmula Terrarium
+            return DEM.encoding === 'mapbox'
+                ? -10000 + (R * 65536 + G * 256 + B) * 0.1   // Terrain-RGB (Mapbox)
+                : (R * 256 + G + B / 256) - 32768;           // Terrarium
         }
         window.getElevation = getElevation;
 
@@ -3861,6 +4185,32 @@
             }
         }
 
+        // Tamaño aproximado de un elemento (para z-order: grandes detrás, pequeños delante)
+        function _elemSize(layer) {
+            const g = layer?._element?.resource?.content?.geometry;
+            if (!g) return 0;
+            if (g.type === 'Point') return 0;                 // siempre delante
+            if (g.type === 'LineString') return 1;            // casi delante
+            if (g.type === 'Circle') return Math.PI * Math.pow(g.radius || 0, 2);
+            if (g.type === 'Polygon') {
+                try {
+                    const b = layer.getBounds(), c = b.getCenter();
+                    const dLat = (b.getNorth() - b.getSouth()) * 111132;
+                    const dLon = (b.getEast() - b.getWest()) * 111132 * Math.cos(c.lat * Math.PI/180);
+                    return Math.abs(dLat * dLon);
+                } catch(_) { return 1e7; }
+            }
+            return 0;
+        }
+        // Reordena las capas: las grandes al fondo, las pequeñas al frente (clicables encima)
+        function _reorderMapElementsBySize() {
+            try {
+                Object.values(_mapElementMarkers)
+                    .sort((a,b) => _elemSize(b) - _elemSize(a))   // grande → pequeño
+                    .forEach(l => { try { l.bringToFront && l.bringToFront(); } catch(_){} });
+            } catch(_) {}
+        }
+
         function _drawMapElement(element) {
             try {
                 const content = element.resource?.content;
@@ -3893,10 +4243,13 @@
                     ? `<div style="font-size:11px;color:#64748b;">radio: ${Math.round(geom.radius || 0)} m</div>` : '';
                 // Popup solo informativo (editar/borrar están en la BARRA, no aquí)
                 layer.bindTooltip(`${label} · ${geom.type}${geom.type==='Circle'?' · '+Math.round(geom.radius||0)+' m':''}`, { direction:'top' });
+                layer._element = element;
                 layer.addTo(mapElementsLayer);
                 _mapElementMarkers[element.id] = layer;
                 // Edición interactiva (Geoman) + click para seleccionar/borrar
                 try { if (window._wireLayerEdit) _wireLayerEdit(layer, element); } catch(_) {}
+                // Reordenar: los pequeños delante para poder clicarlos sobre los grandes
+                _reorderMapElementsBySize();
             } catch(err) {
                 console.warn('[MapElements] Error dibujando:', err);
             }
@@ -4193,6 +4546,510 @@
         }
         window.toggleEraseMode = toggleEraseMode;
 
+        // ── Herramienta de MEDICIÓN + PERFIL DEL TERRENO ───────────────────────────
+        let _measureMode = false, _measurePts = [], _measureLine = null, _measureMarkers = [];
+
+        function toggleMeasureMode() {
+            _measureMode = !_measureMode;
+            document.getElementById('measure-toolbar-btn')?.classList.toggle('active', _measureMode);
+            const panel = document.getElementById('measure-panel');
+            if (panel) panel.style.display = _measureMode ? 'block' : 'none';
+            if (_measureMode) {
+                setDrawMode(null);
+                if (_editMode)  toggleEditMode();
+                if (_eraseMode) toggleEraseMode();
+                map.getContainer().style.cursor = 'crosshair';
+                map.doubleClickZoom.disable();
+            } else {
+                clearMeasure();
+                map.getContainer().style.cursor = '';
+                map.doubleClickZoom.enable();
+            }
+        }
+        window.toggleMeasureMode = toggleMeasureMode;
+
+        function clearMeasure() {
+            _measurePts = [];
+            if (_measureLine) { map.removeLayer(_measureLine); _measureLine = null; }
+            _measureMarkers.forEach(m => map.removeLayer(m)); _measureMarkers = [];
+            const s = document.getElementById('measure-stats');
+            if (s) s.innerHTML = 'Click en el mapa para añadir puntos · doble-click para terminar.';
+            const c = document.getElementById('measure-canvas'); if (c) c.getContext('2d').clearRect(0,0,c.width,c.height);
+        }
+        window.clearMeasure = clearMeasure;
+
+        const _fmtDist = m => m >= 1000 ? (m/1000).toFixed(2) + ' km' : m.toFixed(0) + ' m';
+        function _measureTotal() { let d=0; for (let i=1;i<_measurePts.length;i++) d += _measurePts[i-1].distanceTo(_measurePts[i]); return d; }
+
+        map.on('click', function(e) {
+            if (!_measureMode) return;
+            _measurePts.push(e.latlng);
+            if (_measureLine) map.removeLayer(_measureLine);
+            _measureLine = L.polyline(_measurePts, { color:'#fbbf24', weight:3, dashArray:'6,4' }).addTo(map);
+            const mk = L.circleMarker(e.latlng, { radius:4, color:'#fbbf24', fillColor:'#fbbf24', fillOpacity:1 })
+                        .bindTooltip(''+_measurePts.length, { permanent:true, direction:'top' }).addTo(map);
+            _measureMarkers.push(mk);
+            const s = document.getElementById('measure-stats');
+            if (s) s.innerHTML = `Puntos: <b style="color:#fbbf24">${_measurePts.length}</b> · Distancia: <b style="color:#fbbf24">${_fmtDist(_measureTotal())}</b> · doble-click para el perfil`;
+        });
+
+        map.on('dblclick', function() { if (_measureMode && _measurePts.length >= 2) buildTerrainProfile(); });
+
+        async function buildTerrainProfile() {
+            const total = _measureTotal();
+            const N = Math.min(400, Math.max(40, Math.round(total / 10)));   // ~10 m/muestra
+            const segLen = [], segCum = [0];
+            for (let i=1;i<_measurePts.length;i++){ const l=_measurePts[i-1].distanceTo(_measurePts[i]); segLen.push(l); segCum.push(segCum[i-1]+l); }
+            const samples = [];
+            for (let k=0;k<=N;k++){
+                const d = total * k / N;
+                let si=0; while (si<segLen.length-1 && segCum[si+1] < d) si++;
+                const f = segLen[si] > 0 ? (d - segCum[si]) / segLen[si] : 0;
+                const a=_measurePts[si], b=_measurePts[si+1];
+                samples.push({ d, lat:a.lat+(b.lat-a.lat)*f, lon:a.lng+(b.lng-a.lng)*f, elev:null });
+            }
+            const s = document.getElementById('measure-stats');
+            for (let attempt=0; attempt<12; attempt++){
+                let pending=0;
+                for (const p of samples){ if (p.elev===null){ const e=getElevation(p.lat,p.lon); if (e===null) pending++; else p.elev=e; } }
+                if (!pending) break;
+                if (s) s.innerHTML = `Cargando terreno… (${samples.length-pending}/${samples.length})`;
+                await new Promise(r=>setTimeout(r,350));
+            }
+            const elevs = samples.filter(p=>p.elev!==null).map(p=>p.elev);
+            if (!elevs.length){ if(s) s.innerHTML='Sin datos de elevación (DEM no disponible para esta zona).'; return; }
+            const minE=Math.min(...elevs), maxE=Math.max(...elevs);
+            let gain=0, loss=0;
+            for (let i=1;i<samples.length;i++){ const a=samples[i-1].elev, b=samples[i].elev; if(a!=null&&b!=null){ const dd=b-a; if(dd>0)gain+=dd; else loss-=dd; } }
+            if (s) s.innerHTML = `Distancia: <b style="color:#fbbf24">${_fmtDist(total)}</b> &nbsp; Min <b>${minE.toFixed(0)} m</b> &nbsp; Max <b>${maxE.toFixed(0)} m</b> &nbsp; Desnivel +<b>${gain.toFixed(0)}</b> / −<b>${loss.toFixed(0)} m</b>`;
+            _renderProfileChart(samples, total, minE, maxE);
+        }
+        window.buildTerrainProfile = buildTerrainProfile;
+
+        function _renderProfileChart(samples, total, minE, maxE) {
+            const c = document.getElementById('measure-canvas'); if (!c) return;
+            const w = c.clientWidth || 700; c.width = w; const h = c.height;
+            const ctx = c.getContext('2d'); ctx.clearRect(0,0,w,h);
+            const padL=46, padR=12, padT=12, padB=22, plotW=w-padL-padR, plotH=h-padT-padB;
+            const range = Math.max(1, maxE-minE);
+            const x = d => padL + plotW * (total>0 ? d/total : 0);
+            const y = e => padT + plotH * (1 - (e-minE)/range);
+            ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.fillStyle='#94a3b8'; ctx.font='10px monospace'; ctx.lineWidth=1;
+            [maxE,(minE+maxE)/2,minE].forEach(ev=>{ const yy=y(ev); ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke(); ctx.fillText(ev.toFixed(0)+'m', 4, yy+3); });
+            ctx.fillText('0', padL, h-6); ctx.fillText(_fmtDist(total), w-padR-44, h-6);
+            ctx.beginPath(); ctx.moveTo(x(0), padT+plotH);
+            samples.forEach(p=>{ if(p.elev!=null) ctx.lineTo(x(p.d), y(p.elev)); });
+            ctx.lineTo(x(total), padT+plotH); ctx.closePath(); ctx.fillStyle='rgba(251,191,36,0.18)'; ctx.fill();
+            ctx.beginPath(); let started=false;
+            samples.forEach(p=>{ if(p.elev==null) return; const px=x(p.d),py=y(p.elev); started?ctx.lineTo(px,py):(ctx.moveTo(px,py),started=true); });
+            ctx.strokeStyle='#fbbf24'; ctx.lineWidth=2; ctx.stroke();
+        }
+
+        // ── ANÁLISIS DE VISIBILIDAD (viewshed) ─────────────────────────────────────
+        let _viewshedMode = false, _viewshedLayers = [];
+
+        function _zoomResApprox(z) { return Math.round(40075016 * Math.cos(40*Math.PI/180) / Math.pow(2, z) / 256); }
+        function _populateDemSelectors() {
+            const srcSel = document.getElementById('vs-dem-src');
+            if (srcSel) {
+                if (!srcSel._filled) { srcSel.innerHTML = Object.entries(DEM_SOURCES).map(([k,v]) => `<option value="${k}">${v.name}</option>`).join(''); srcSel._filled = true; }
+                srcSel.value = DEM.source;
+            }
+            const zSel = document.getElementById('vs-dem-zoom');
+            if (zSel) { const mz = DEM_SOURCES[DEM.source].maxZoom; zSel.innerHTML='';
+                for (let z=10; z<=mz; z++){ const o=document.createElement('option'); o.value=z; o.textContent=`${z} (~${_zoomResApprox(z)} m/px)`; if(z===DEM.zoom)o.selected=true; zSel.appendChild(o); } }
+        }
+        function onDemConfigChange() {
+            setDemSource(document.getElementById('vs-dem-src').value, parseInt(document.getElementById('vs-dem-zoom').value,10));
+            _populateDemSelectors();
+            clearViewshed();
+        }
+        window.onDemConfigChange = onDemConfigChange;
+
+        function toggleViewshedMode() {
+            _viewshedMode = !_viewshedMode;
+            document.getElementById('viewshed-toolbar-btn')?.classList.toggle('active', _viewshedMode);
+            const panel = document.getElementById('viewshed-panel'); if (panel) panel.style.display = _viewshedMode ? 'block' : 'none';
+            if (_viewshedMode) {
+                setDrawMode(null); if(_editMode)toggleEditMode(); if(_eraseMode)toggleEraseMode(); if(_measureMode)toggleMeasureMode();
+                _populateDemSelectors();
+                map.getContainer().style.cursor = 'crosshair';
+            } else { map.getContainer().style.cursor = ''; }
+        }
+        window.toggleViewshedMode = toggleViewshedMode;
+
+        let _viewshedColor = '#10b981';
+        let _viewshedOpacity = 0.55;
+        let _viewshedLastParams = null;
+
+        function setViewshedColor(color, el) {
+            _viewshedColor = color;
+            document.querySelectorAll('.vs-palette-sw').forEach(sw => {
+                sw.classList.remove('active');
+                sw.style.borderColor = 'transparent';
+                sw.style.boxShadow = 'none';
+            });
+            if (el) {
+                el.classList.add('active');
+                el.style.borderColor = '#fff';
+                el.style.boxShadow = `0 0 5px ${color}`;
+            }
+            const dot = document.getElementById('vs-legend-color-dot');
+            if (dot) {
+                dot.style.background = color;
+                dot.style.boxShadow = `0 0 5px ${color}`;
+            }
+            if (_viewshedLastParams) {
+                computeViewshed(_viewshedLastParams.lat, _viewshedLastParams.lon, _viewshedLastParams.h, _viewshedLastParams.r);
+            }
+        }
+        window.setViewshedColor = setViewshedColor;
+
+        function onViewshedOpacityChange(val) {
+            _viewshedOpacity = parseFloat(val);
+            const text = document.getElementById('vs-opacity-text');
+            if (text) text.textContent = Math.round(_viewshedOpacity * 100) + '%';
+            _viewshedLayers.forEach(l => {
+                if (l instanceof L.ImageOverlay) {
+                    l.setOpacity(_viewshedOpacity);
+                }
+            });
+        }
+        window.onViewshedOpacityChange = onViewshedOpacityChange;
+
+        function clearViewshed() {
+            _viewshedLayers.forEach(l => { try { map.removeLayer(l); } catch(_){} });
+            _viewshedLayers = [];
+            _viewshedLastParams = null;
+        }
+        window.clearViewshed = clearViewshed;
+
+        async function _demPreloadArea(latMin, lonMin, latMax, lonMax) {
+            const z = DEM.zoom;
+            const a = _demTileXY(latMax, lonMin, z), b = _demTileXY(latMin, lonMax, z);
+            const xMin=Math.floor(Math.min(a.x,b.x)), xMax=Math.floor(Math.max(a.x,b.x));
+            const yMin=Math.floor(Math.min(a.y,b.y)), yMax=Math.floor(Math.max(a.y,b.y));
+            const es = [];
+            for (let x=xMin;x<=xMax;x++) for (let y=yMin;y<=yMax;y++) es.push(_demLoadTile(z,x,y));
+            for (let i=0;i<30;i++){ if (es.every(e=>e.data||e.error)) break; await new Promise(r=>setTimeout(r,200)); }
+            return es.some(e=>e.data);
+        }
+
+        map.on('click', function(e) {
+            if (!_viewshedMode) return;
+            const h = parseFloat(document.getElementById('vs-height').value) || 50;
+            const r = parseFloat(document.getElementById('vs-radius').value) || 2000;
+            computeViewshed(e.latlng.lat, e.latlng.lng, h, r);
+        });
+
+        async function computeViewshed(obsLat, obsLon, height, radius) {
+            const hint = document.getElementById('vs-hint');
+            const mLat = 111132, mLon = 111132 * Math.cos(obsLat*Math.PI/180);
+            const dLat = radius/mLat, dLon = radius/mLon;
+            const latMin=obsLat-dLat, latMax=obsLat+dLat, lonMin=obsLon-dLon, lonMax=obsLon+dLon;
+            if (hint) hint.textContent = 'Cargando terreno…';
+            const ok = await _demPreloadArea(latMin, lonMin, latMax, lonMax);
+            const obsGround = getElevation(obsLat, obsLon);
+            if (!ok || obsGround === null) { if (hint) hint.textContent = 'Sin DEM para esta zona/fuente.'; return; }
+            const obsElev = obsGround + height;
+            if (hint) hint.textContent = 'Calculando visibilidad…';
+            await new Promise(r => setTimeout(r, 15));
+            const P = 420, cv = document.createElement('canvas'); cv.width = P; cv.height = P;
+            const ctx = cv.getContext('2d'); ctx.fillStyle = _viewshedColor;
+            const mpp = (2*radius)/P, Re = 6371000/(1-0.13);
+            const toPx = (lat,lon) => [((lon-lonMin)/(lonMax-lonMin))*P, (1-(lat-latMin)/(latMax-latMin))*P];
+            const rays = 720, dr = Math.max(mpp, radius/300);
+            for (let aRay=0; aRay<rays; aRay++) {
+                const ang = aRay/rays*2*Math.PI, sa=Math.sin(ang), ca=Math.cos(ang);
+                let maxAng = -Infinity;
+                for (let r=dr; r<=radius; r+=dr) {
+                    const lat=obsLat+(r*ca)/mLat, lon=obsLon+(r*sa)/mLon;
+                    const terr=getElevation(lat,lon); if (terr===null) continue;
+                    const vAng = Math.atan2((terr - r*r/(2*Re)) - obsElev, r);
+                    if (vAng >= maxAng) {
+                        maxAng = vAng;
+                        const p = toPx(lat,lon), ds = Math.max(2, Math.ceil((2*Math.PI*r/rays)/mpp)+1);
+                        ctx.fillRect(p[0]-ds/2, p[1]-ds/2, ds, ds);
+                    }
+                }
+            }
+            clearViewshed();
+            _viewshedLastParams = { lat: obsLat, lon: obsLon, h: height, r: radius };
+            const ov = L.imageOverlay(cv.toDataURL(), [[latMin,lonMin],[latMax,lonMax]], { opacity: _viewshedOpacity, interactive: false }).addTo(map);
+            const rim = L.circle([obsLat,obsLon], { radius, color: _viewshedColor, weight: 1, fill: false, dashArray: '5,4' }).addTo(map);
+            const mk = L.circleMarker([obsLat,obsLon], { radius: 6, color: '#fff', fillColor: _viewshedColor, fillOpacity: 1, weight: 2 })
+                        .bindTooltip(`Observador +${height} m · radio ${radius} m`, { direction: 'top' }).addTo(map);
+            _viewshedLayers = [ov, rim, mk];
+            if (hint) hint.textContent = 'Listo. Click en otro punto para recalcular.';
+        }
+        window.computeViewshed = computeViewshed;
+
+        // --- Integración de Tráfico Aéreo (ADS-B) ---
+        let _adsbMode = false;
+        let _adsbInterval = null;
+        let _adsbMarkers = {};
+        const adsbLayerGroup = L.layerGroup().addTo(map);
+
+        function toggleAdsbMode() {
+            _adsbMode = !_adsbMode;
+            document.getElementById('adsb-toolbar-btn')?.classList.toggle('active', _adsbMode);
+            if (_adsbMode) {
+                addLog('Tráfico aéreo online activado.', 'system');
+                updateAdsbFlights();
+                _adsbInterval = setInterval(updateAdsbFlights, 5000);
+            } else {
+                addLog('Tráfico aéreo online desactivado.', 'system');
+                if (_adsbInterval) { clearInterval(_adsbInterval); _adsbInterval = null; }
+                clearAdsbFlights();
+            }
+        }
+        window.toggleAdsbMode = toggleAdsbMode;
+
+        function clearAdsbFlights() {
+            adsbLayerGroup.clearLayers();
+            _adsbMarkers = {};
+            const body = document.getElementById('adsb-list-body');
+            if (body) {
+                body.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px 0;color:var(--text-muted);">Sin aviones en rango. Activa "Tráfico Aéreo".</td></tr>`;
+            }
+            const countBadge = document.getElementById('adsb-list-count');
+            if (countBadge) {
+                countBadge.innerText = '0';
+            }
+        }
+
+        async function updateAdsbFlights() {
+            if (!_adsbMode) return;
+            try {
+                const center = map.getCenter();
+                // Calcular el rango visible en el mapa (distancia del centro a la esquina NE) en millas náuticas (1 NM = 1852 m)
+                const bounds = map.getBounds();
+                const northEast = bounds.getNorthEast();
+                const distanceMeters = center.distanceTo(northEast);
+                const rangeNm = Math.max(10, Math.min(250, Math.round(distanceMeters / 1852)));
+
+                // Consultar vuelos a través del proxy del backend (evita CORS y bloqueos de Cloudflare) con rango dinámico
+                const response = await fetch(`/api/web-map/adsb/traffic?lat=${center.lat}&lng=${center.lng}&range=${rangeNm}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                
+                const activeHexes = new Set();
+                let rowsHtml = '';
+                let planeCount = 0;
+                
+                if (data && data.ac) {
+                    // Filtrar y calcular distancia para ordenar
+                    const planes = data.ac.filter(ac => ac.hex && ac.lat && ac.lon);
+                    planes.forEach(ac => {
+                        ac._distMeters = center.distanceTo(L.latLng(ac.lat, ac.lon));
+                    });
+                    
+                    // Ordenar por distancia (más cercanos primero)
+                    planes.sort((a, b) => a._distMeters - b._distMeters);
+
+                    planes.forEach(ac => {
+                        const hex = ac.hex.toLowerCase();
+                        activeHexes.add(hex);
+                        planeCount++;
+
+                        // Obtener altitud en pies y metros
+                        const altFeet = (ac.alt_baro === 'ground') ? 0 : (parseFloat(ac.alt_baro) || parseFloat(ac.alt_geom) || 0);
+                        const altMeters = altFeet * 0.3048;
+                        const heading = ac.track || 0;
+                        const color = getAltitudeColor(altMeters);
+                        const callsign = (ac.flight || ac.r || 'N/A').trim();
+                        const speedKmh = Math.round((ac.gs || 0) * 1.852);
+                        const distNm = (ac._distMeters / 1852).toFixed(1);
+
+                        const markerHtml = `
+                            <div style="transform: rotate(${heading}deg); width:24px; height:24px; display:flex; align-items:center; justify-content:center; transition: transform 0.4s ease;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="#000" stroke-width="1.2" style="display: block;">
+                                    <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L14 19v-5.5L21 16z"/>
+                                </svg>
+                            </div>
+                            <div class="adsb-plane-label" style="border-color:${color};">${callsign}</div>
+                        `;
+
+                        const popupHtml = `
+                            <div style="font-family:'Outfit',sans-serif; font-size:12px; min-width:180px; color:var(--text-main);">
+                                <div style="font-weight:700; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:4px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="color:${color}; font-size:13px;">✈ ${callsign}</span>
+                                    <span style="font-size:9px; color:var(--text-muted); font-family:monospace;">${hex.toUpperCase()}</span>
+                                </div>
+                                <div style="display:grid; grid-template-columns:auto 1fr; gap:3px 8px; font-size:11px; line-height:1.4; margin-bottom: 8px;">
+                                    <span style="color:var(--text-muted);">Modelo:</span> <strong style="text-align:right;">${ac.t || 'Desconocido'}</strong>
+                                    <span style="color:var(--text-muted);">Matrícula:</span> <strong style="text-align:right;">${ac.r || 'N/A'}</strong>
+                                    <span style="color:var(--text-muted);">Altitud:</span> <strong style="text-align:right; color:${color};">${altFeet.toLocaleString()} ft (${Math.round(altMeters).toLocaleString()} m)</strong>
+                                    <span style="color:var(--text-muted);">Velocidad:</span> <strong style="text-align:right;">${Math.round(ac.gs || 0)} kt (${speedKmh} km/h)</strong>
+                                    <span style="color:var(--text-muted);">Rumbo:</span> <strong style="text-align:right;">${Math.round(heading)}°</strong>
+                                </div>
+                                <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+                                    <div style="font-size:9px; color:var(--text-muted); text-transform:uppercase; font-weight:700; font-family:'Rajdhani',sans-serif;">Búsqueda OSINT</div>
+                                    ${getOsintLinksHtml(hex, ac.r, callsign)}
+                                </div>
+                            </div>
+                        `;
+
+                        if (_adsbMarkers[hex]) {
+                            _adsbMarkers[hex].setLatLng([ac.lat, ac.lon]);
+                            _adsbMarkers[hex].setIcon(L.divIcon({
+                                html: markerHtml,
+                                className: 'custom-adsb-plane-marker',
+                                iconSize: [24, 24],
+                                iconAnchor: [12, 12]
+                            }));
+                            _adsbMarkers[hex].setPopupContent(popupHtml);
+                        } else {
+                            const m = L.marker([ac.lat, ac.lon], {
+                                icon: L.divIcon({
+                                    html: markerHtml,
+                                    className: 'custom-adsb-plane-marker',
+                                    iconSize: [24, 24],
+                                    iconAnchor: [12, 12]
+                                })
+                            }).bindPopup(popupHtml).addTo(adsbLayerGroup);
+                            _adsbMarkers[hex] = m;
+                        }
+
+                        // Agregar fila a la tabla si el panel está abierto
+                        if (adsbListPanelOpen) {
+                            rowsHtml += `
+                                <tr onclick="focusOnAdsbPlane('${hex}', ${ac.lat}, ${ac.lon})" 
+                                    style="border-bottom:1px solid rgba(255,255,255,0.04); cursor:pointer; transition:background-color 0.2s;" 
+                                    onmouseover="this.style.backgroundColor='rgba(251, 113, 133, 0.08)'" 
+                                    onmouseout="this.style.backgroundColor='transparent'">
+                                    <td style="padding:6px 4px; font-weight:700; color: ${color}; font-family:'JetBrains Mono',monospace;">
+                                        ${callsign} <span style="font-size:8px; color:var(--text-muted); font-weight:normal; display:block;">(${hex.toUpperCase()})</span>
+                                    </td>
+                                    <td style="padding:6px 4px; font-family:'JetBrains Mono',monospace;">${ac.r || 'N/A'}</td>
+                                    <td style="padding:6px 4px;">${ac.t || 'Desconocido'}</td>
+                                    <td style="padding:6px 4px; font-family:'JetBrains Mono',monospace; text-align:right;">
+                                        ${altFeet.toLocaleString()} ft<span style="font-size:8px; color:var(--text-muted); display:block;">${Math.round(altMeters).toLocaleString()} m</span>
+                                    </td>
+                                    <td style="padding:6px 4px; font-family:'JetBrains Mono',monospace; text-align:right;">
+                                        ${Math.round(ac.gs || 0)} kt<span style="font-size:8px; color:var(--text-muted); display:block;">${speedKmh} km/h</span>
+                                    </td>
+                                    <td style="padding:6px 4px; font-family:'JetBrains Mono',monospace; text-align:right;">${distNm}</td>
+                                    <td style="padding:6px 4px; text-align:center;">${getOsintLinksHtml(hex, ac.r, callsign)}</td>
+                                </tr>
+                            `;
+                        }
+                    });
+                }
+
+                // Actualizar UI del panel si está abierto
+                if (adsbListPanelOpen) {
+                    const body = document.getElementById('adsb-list-body');
+                    if (body) {
+                        body.innerHTML = rowsHtml || `<tr><td colspan="7" style="text-align:center;padding:20px 0;color:var(--text-muted);">Sin aviones en rango.</td></tr>`;
+                    }
+                    const countBadge = document.getElementById('adsb-list-count');
+                    if (countBadge) {
+                        countBadge.innerText = `${planeCount} ${planeCount === 1 ? 'Avión' : 'Aviones'}`;
+                    }
+                }
+
+                // Eliminar marcadores inactivos
+                Object.keys(_adsbMarkers).forEach(hex => {
+                    if (!activeHexes.has(hex)) {
+                        adsbLayerGroup.removeLayer(_adsbMarkers[hex]);
+                        delete _adsbMarkers[hex];
+                    }
+                });
+            } catch (err) {
+                console.warn('[ADS-B] Error actualizando tráfico aéreo:', err);
+            }
+        }
+
+        let adsbListPanelOpen = false;
+
+        function getOsintLinksHtml(hex, reg, callsign) {
+            const cleanReg = (reg && reg !== 'N/A') ? reg.trim() : '';
+            const cleanCallsign = (callsign && callsign !== 'N/A') ? callsign.trim() : '';
+            
+            // Flightradar24
+            const fr24Url = cleanReg 
+                ? `https://www.flightradar24.com/data/aircraft/${cleanReg}`
+                : (cleanCallsign ? `https://www.flightradar24.com/data/flights/${cleanCallsign}` : '#');
+            const fr24Title = cleanReg 
+                ? `Flightradar24: Buscar matrícula ${cleanReg}` 
+                : (cleanCallsign ? `Flightradar24: Buscar vuelo ${cleanCallsign}` : 'Flightradar24 no disponible');
+            const fr24Class = (cleanReg || cleanCallsign) ? 'osint-btn osint-fr24' : 'osint-btn osint-disabled';
+            
+            // RadarBox
+            const rbUrl = cleanReg 
+                ? `https://www.radarbox.com/data/registration/${cleanReg}`
+                : (cleanCallsign ? `https://www.radarbox.com/data/flights/${cleanCallsign}` : '#');
+            const rbTitle = cleanReg 
+                ? `RadarBox: Buscar matrícula ${cleanReg}` 
+                : (cleanCallsign ? `RadarBox: Buscar vuelo ${cleanCallsign}` : 'RadarBox no disponible');
+            const rbClass = (cleanReg || cleanCallsign) ? 'osint-btn osint-rb' : 'osint-btn osint-disabled';
+
+            // Planespotters.net (Requires registration)
+            const psUrl = cleanReg ? `https://www.planespotters.net/search?q=${cleanReg}` : '#';
+            const psTitle = cleanReg ? `Planespotters: Buscar matrícula ${cleanReg}` : 'Planespotters requiere matrícula';
+            const psClass = cleanReg ? 'osint-btn osint-ps' : 'osint-btn osint-disabled';
+
+            // ADS-B Exchange (Requires ICAO hex)
+            const axUrl = hex ? `https://globe.adsbexchange.com/?icao=${hex}` : '#';
+            const axTitle = hex ? `ADS-B Exchange: Buscar Hex ${hex.toUpperCase()}` : 'ADS-B Exchange no disponible';
+            const axClass = hex ? 'osint-btn osint-ax' : 'osint-btn osint-disabled';
+
+            return `
+                <div style="display:flex; gap:4px; justify-content:center; align-items:center;">
+                    <a href="${fr24Url}" target="_blank" class="${fr24Class}" title="${fr24Title}" onclick="event.stopPropagation();">FR</a>
+                    <a href="${rbUrl}" target="_blank" class="${rbClass}" title="${rbTitle}" onclick="event.stopPropagation();">RB</a>
+                    <a href="${psUrl}" target="_blank" class="${psClass}" title="${psTitle}" onclick="event.stopPropagation();">PS</a>
+                    <a href="${axUrl}" target="_blank" class="${axClass}" title="${axTitle}" onclick="event.stopPropagation();">AX</a>
+                </div>
+            `;
+        }
+
+        function openAdsbListPanel() {
+            adsbListPanelOpen = true;
+            const panel = document.getElementById('adsb-list-panel');
+            if (panel) {
+                panel.style.display = 'flex';
+                if (!_adsbMode) {
+                    toggleAdsbMode();
+                } else {
+                    updateAdsbFlights();
+                }
+            }
+            document.getElementById('adsb-list-btn')?.classList.add('active');
+            addLog('Panel de aviones ADS-B abierto.', 'system');
+        }
+
+        function closeAdsbListPanel() {
+            adsbListPanelOpen = false;
+            const panel = document.getElementById('adsb-list-panel');
+            if (panel) {
+                panel.style.display = 'none';
+            }
+            document.getElementById('adsb-list-btn')?.classList.remove('active');
+        }
+
+        function toggleAdsbListPanel() {
+            if (adsbListPanelOpen) {
+                closeAdsbListPanel();
+            } else {
+                openAdsbListPanel();
+            }
+        }
+
+        function focusOnAdsbPlane(hex, lat, lon) {
+            if (lat && lon) {
+                map.panTo([lat, lon]);
+                if (_adsbMarkers[hex]) {
+                    _adsbMarkers[hex].openPopup();
+                }
+            }
+        }
+
+        window.toggleAdsbListPanel = toggleAdsbListPanel;
+        window.closeAdsbListPanel = closeAdsbListPanel;
+        window.focusOnAdsbPlane = focusOnAdsbPlane;
+
         function openDrcPanel() {
             drcPanelOpen = true;
             const panel = document.getElementById('drc-panel');
@@ -4395,24 +5252,7 @@
         // Refrescar lista DRC cada 6s si el panel está abierto
         setInterval(() => { if (drcPanelOpen) renderDrcGwList(); }, 6000);
 
-        // Hacer el panel DRC arrastrable
-        (function makeDraggable(panelId, headerId) {
-            const panel = document.getElementById(panelId);
-            const header = document.getElementById(headerId);
-            let ox = 0, oy = 0, mx = 0, my = 0;
-            header.onmousedown = function(e) {
-                e.preventDefault();
-                mx = e.clientX; my = e.clientY;
-                document.onmouseup   = () => { document.onmouseup = null; document.onmousemove = null; };
-                document.onmousemove = function(e) {
-                    ox = mx - e.clientX; oy = my - e.clientY;
-                    mx = e.clientX; my = e.clientY;
-                    panel.style.top  = (panel.offsetTop  - oy) + 'px';
-                    panel.style.right = 'auto';
-                    panel.style.left = (panel.offsetLeft - ox) + 'px';
-                };
-            };
-        })('drc-panel', 'drc-panel-header');
+        // DRC dragging and resizing is initialized globally at the bottom of the script
 
         // ── Selección de dron activo ─────────────────────────────────────────────
         // Llama a esta función desde cualquier click (tarjeta HUD o marcador mapa)
@@ -5647,26 +6487,8 @@
             }
         }
 
-        // ── Drag del panel ────────────────────────────────────────────────────
-
-        (function initRoutePanelDrag() {
-            const panel  = document.getElementById('route-panel');
-            const header = document.getElementById('route-panel-header');
-            let dragging = false, sx, sy, ox, oy;
-            header.addEventListener('mousedown', e => {
-                dragging = true; sx = e.clientX; sy = e.clientY;
-                const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
-                panel.style.right = 'auto'; e.preventDefault();
-            });
-            document.addEventListener('mousemove', e => {
-                if (!dragging) return;
-                panel.style.left = (ox + e.clientX - sx) + 'px';
-                panel.style.top  = (oy + e.clientY - sy) + 'px';
-            });
-            document.addEventListener('mouseup', () => { dragging = false; });
-            // Init color picker on load
-            initColorPicker();
-        })();
+        // Initialize color picker on load (dragging is handled globally at the bottom of the script)
+        initColorPicker();
 
         // =====================================================================
         // PANEL DE VUELOS REGISTRADOS
@@ -5912,24 +6734,7 @@
             document.getElementById('replay-play-btn').textContent = '▶ Play';
         }
 
-        // ── Drag del panel de vuelos ──────────────────────────────────────────
-
-        (function initFlightsPanelDrag() {
-            const panel  = document.getElementById('flights-panel');
-            const header = document.getElementById('flights-panel-header');
-            let dragging = false, sx, sy, ox, oy;
-            header.addEventListener('mousedown', e => {
-                dragging = true; sx = e.clientX; sy = e.clientY;
-                const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top;
-                panel.style.left = ox + 'px'; panel.style.top = oy + 'px'; panel.style.transform = 'none'; e.preventDefault();
-            });
-            document.addEventListener('mousemove', e => {
-                if (!dragging) return;
-                panel.style.left = (ox + e.clientX - sx) + 'px';
-                panel.style.top  = (oy + e.clientY - sy) + 'px';
-            });
-            document.addEventListener('mouseup', () => { dragging = false; });
-        })();
+        // Dragging for flights-panel is handled globally at the bottom of the script
 
         // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -7017,6 +7822,124 @@
             addLog(`Vídeo eliminado: ${name}`, 'system');
             loadVideoList();
         }
+
+        // ── Drag and Resize Utilities for panels ─────────────────────────────
+        function makeElementDraggable(panel, header) {
+            let dragging = false;
+            let offsetX = 0;
+            let offsetY = 0;
+
+            header.addEventListener('mousedown', e => {
+                if (e.button !== 0) return;
+                if (e.target.closest('button, input, select, textarea, label')) return;
+
+                dragging = true;
+                const rect = panel.getBoundingClientRect();
+                
+                panel.style.left = rect.left + 'px';
+                panel.style.top = rect.top + 'px';
+                panel.style.right = 'auto';
+                panel.style.bottom = 'auto';
+                panel.style.transform = 'none';
+                panel.style.animation = 'none';
+                panel.style.transition = 'none';
+                panel.style.margin = '0';
+
+                offsetX = e.clientX - rect.left;
+                offsetY = e.clientY - rect.top;
+
+                e.preventDefault();
+            });
+
+            document.addEventListener('mousemove', e => {
+                if (!dragging) return;
+                panel.style.left = (e.clientX - offsetX) + 'px';
+                panel.style.top = (e.clientY - offsetY) + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                dragging = false;
+            });
+        }
+
+        function makeElementResizable(panel) {
+            const rightHandle = document.createElement('div');
+            rightHandle.style.cssText = 'position:absolute; right:0; top:0; bottom:0; width:6px; cursor:e-resize; z-index:9999;';
+            
+            const bottomHandle = document.createElement('div');
+            bottomHandle.style.cssText = 'position:absolute; left:0; right:0; bottom:0; height:6px; cursor:s-resize; z-index:9999;';
+            
+            const cornerHandle = document.createElement('div');
+            cornerHandle.style.cssText = 'position:absolute; right:0; bottom:0; width:12px; height:12px; cursor:se-resize; z-index:10000;';
+
+            panel.appendChild(rightHandle);
+            panel.appendChild(bottomHandle);
+            panel.appendChild(cornerHandle);
+
+            function initResize(e, direction) {
+                e.preventDefault();
+                panel.style.maxHeight = 'none'; // Clear max-height restriction
+                panel.style.animation = 'none';
+                panel.style.transition = 'none';
+                const startWidth = panel.offsetWidth;
+                const startHeight = panel.offsetHeight;
+                const startX = e.clientX;
+                const startY = e.clientY;
+
+                function doResize(ev) {
+                    if (direction === 'e' || direction === 'se') {
+                        const newWidth = startWidth + (ev.clientX - startX);
+                        panel.style.width = Math.max(250, newWidth) + 'px';
+                    }
+                    if (direction === 's' || direction === 'se') {
+                        const newHeight = startHeight + (ev.clientY - startY);
+                        panel.style.height = Math.max(120, newHeight) + 'px';
+                    }
+                    // Remove max-height limits on inner elements to allow them to scale with the panel
+                    panel.querySelectorAll('.klv-section, #waypoint-list, #drc-gw-list, #active-flights-list, #completed-flights-list, #video-list, #klv-file-list, #ftab-active-content, #ftab-history-content, #map-elements-list, #adsb-list-container').forEach(el => {
+                        el.style.maxHeight = 'none';
+                    });
+                }
+
+                function stopResize() {
+                    document.removeEventListener('mousemove', doResize);
+                    document.removeEventListener('mouseup', stopResize);
+                }
+
+                document.addEventListener('mousemove', doResize);
+                document.addEventListener('mouseup', stopResize);
+            }
+
+            rightHandle.addEventListener('mousedown', e => initResize(e, 'e'));
+            bottomHandle.addEventListener('mousedown', e => initResize(e, 's'));
+            cornerHandle.addEventListener('mousedown', e => initResize(e, 'se'));
+        }
+
+        // Initialize drag & resize on all panels
+        function initAllPanelsDragAndResize() {
+            const configs = [
+                { panelId: 'route-panel', headerId: 'route-panel-header' },
+                { panelId: 'flights-panel', headerId: 'flights-panel-header' },
+                { panelId: 'drc-panel', headerId: 'drc-panel-header' },
+                { panelId: 'video-panel', headerId: 'video-panel-header' },
+                { panelId: 'viewshed-panel', headerId: 'viewshed-panel-header' },
+                { panelId: 'map-elements-panel', headerId: 'map-elements-panel-header' },
+                { panelId: 'measure-panel', headerId: 'measure-panel-header' },
+                { panelId: 'adsb-list-panel', headerId: 'adsb-list-panel-header' }
+            ];
+
+            configs.forEach(cfg => {
+                const panel = document.getElementById(cfg.panelId);
+                const header = document.getElementById(cfg.headerId);
+                if (panel && header) {
+                    makeElementDraggable(panel, header);
+                    makeElementResizable(panel);
+                }
+            });
+        }
+        
+        // Run after loading
+        initAllPanelsDragAndResize();
 
     </script>
 </body>
